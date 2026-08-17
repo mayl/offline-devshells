@@ -46,12 +46,10 @@ let
 
   evalAssertions = [
     {
-      name = "env reaches the dev shell hook, exported outright";
-      ok = lib.hasInfix ''export DEMO_HOME="$PWD/.demo"'' shell.devShell.shellHook;
-    }
-    {
-      name = "preamble reaches the dev shell hook";
-      ok = lib.hasInfix ''mkdir -p "$DEMO_HOME"'' shell.devShell.shellHook;
+      name = "the dev shell sources the environment rather than re-rendering it";
+      ok =
+        lib.hasInfix "source /nix/store/" shell.devShell.shellHook
+        && !lib.hasInfix "export DEMO_HOME" shell.devShell.shellHook;
     }
     {
       name = "the recipe name drops the shell's command prefix";
@@ -101,16 +99,32 @@ else
     wrapper=${shell.scripts.demo-wrapper}/bin/demo-wrapper
     bootstrap=${shell.scripts.demo-bootstrap}/bin/demo-bootstrap
 
-    # `:=` and not `=`: an entrypoint must not clobber an environment the dev
-    # shell already set, which is what lets one script serve both routes.
-    grep -qF ': "''${DEMO_HOME:=$PWD/.demo}"' "$hello" \
-      || fail "env missing from the entrypoint preamble, or not applied as a default"
+    # One environment, one file. The dev shell and every entrypoint source the
+    # same path -- that identity is the property worth pinning, because two
+    # renderings drift silently.
+    env_file=${shell.envFile}
+    grep -qF "source $env_file" "$hello" \
+      || fail "the entrypoint does not source the environment"
 
-    grep -qF 'mkdir -p "$DEMO_HOME"' "$hello" \
-      || fail "preamble missing from the entrypoint"
+    grep -qF 'export DEMO_HOME="$PWD/.demo"' "$env_file" \
+      || fail "env missing from the rendered environment"
 
-    grep -q 'DEMO_HOME' "$bootstrap" \
-      && fail "applyEnv = false did not suppress the preamble"
+    grep -qF 'mkdir -p "$DEMO_HOME"' "$env_file" \
+      || fail "preamble missing from the rendered environment"
+
+    # The preamble sits outside the guard, so it re-runs and can recreate state
+    # that was deleted between two commands; the exports sit inside it.
+    guard_line=$(grep -n 'OFFLINE_DEVSHELL_demo' "$env_file" | head -1 | cut -d: -f1)
+    export_line=$(grep -n 'export DEMO_HOME' "$env_file" | cut -d: -f1)
+    fi_line=$(grep -n '^fi$' "$env_file" | head -1 | cut -d: -f1)
+    preamble_line=$(grep -n 'mkdir -p' "$env_file" | cut -d: -f1)
+    [ "$guard_line" -lt "$export_line" ] && [ "$export_line" -lt "$fi_line" ] \
+      || fail "the exports are not inside the guard"
+    [ "$preamble_line" -gt "$fi_line" ] \
+      || fail "the preamble is inside the guard, so it would not re-run"
+
+    grep -q "$env_file" "$bootstrap" \
+      && fail "applyEnv = false did not suppress the environment"
 
     grep -qF '${shell.scripts.demo-hello}/bin' "$wrapper" \
       || fail "runtimeEntrypoints did not put the other entrypoint on PATH"
@@ -136,6 +150,20 @@ else
       || fail "runtimeAll did not put the other entrypoints on PATH"
     [ "$("$shell" sh -c 'echo "$DEMO_HOME"')" = "$PWD/.demo" ] \
       || fail "the shell entrypoint did not apply the environment"
+
+    # Entering fresh, the environment wins over whatever the caller had set --
+    # an offline environment must not be pointed elsewhere by a stray variable.
+    [ "$(DEMO_HOME=/somewhere/else "$shell" sh -c 'echo "$DEMO_HOME"')" = "$PWD/.demo" ] \
+      || fail "a caller's value survived entry into the environment"
+
+    # But a command run from *inside* it inherits what is already established,
+    # rather than recomputing a $PWD-relative value against a subdirectory.
+    mkdir -p sub
+    nested=$("$shell" sh -c "cd sub && $hello nested")
+    case "$nested" in
+      "hello nested in $PWD/.demo") ;;
+      *) fail "nested command recomputed the environment: $nested" ;;
+    esac
 
     touch $out
   ''

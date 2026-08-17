@@ -108,7 +108,7 @@ interface — which is the point of routing them through the global justfile.
 |---|---|
 | `packages` | on `PATH`, in the shell and in `environment.systemPackages` |
 | `env` | shell fragments, expanded at run time — `CARGO_HOME = "$PWD/.cargo-home"` |
-| `preamble` | shell run before any tool, in the shell hook *and* every entrypoint |
+| `preamble` | shell run before any tool, in the shell hook *and* every entrypoint; must be idempotent |
 | `entrypoints.<cmd>` | the commands the environment provides |
 | `bundlePaths` | extra store paths that must be present offline but are not on `PATH` |
 | `banner`, `justNamespace`, `commandPrefix` | presentation |
@@ -117,13 +117,43 @@ Language support arrives as a **backend** — an option whose value contributes
 back into those. `rust` is the only one so far; adding `julia` means writing
 `modules/julia/` and listing it in `backendModules`, not redesigning anything.
 
-### Entrypoints, and why they work outside the shell
+### One environment, several ways in
 
-Every entrypoint is a `writeShellApplication` with an **env preamble** prepended:
-`env` applied with `:=` defaults rather than `=`, then `preamble`. So a script
-lands in the same environment whether it was invoked from inside `nix develop` or
-bare from a `just` recipe on a machine with no dev shell at all. That is the one
-thing that makes the global-justfile route work.
+`env` and `preamble` are rendered **once**, into a single `env.bash` in the store,
+and everything sources that same file — the dev shell's hook, every entrypoint,
+and you, from an `.envrc` or a CI script (`offlineShells.<name>.envFile`, also
+`env.bash` inside the offline bundle):
+
+```bash
+if [ -z "${OFFLINE_DEVSHELL_embassy:-}" ]; then
+    export OFFLINE_DEVSHELL_embassy=1
+    export CARGO_HOME="$PWD/.cargo-home"
+    export CARGO_NET_OFFLINE="true"
+    ...
+fi
+
+mkdir -p "$CARGO_HOME"          # preamble: outside the guard, so it re-runs
+...
+```
+
+This is [numtide/devshell](https://github.com/numtide/devshell)'s idea, and the
+reason to copy it is that the alternative — one rendering for the shell hook,
+another for the scripts — drifts, and the drift is invisible until a command
+behaves differently inside the shell than outside it. `nix develop` is not the
+privileged route here; it just sources the file like everyone else.
+
+The guard is why a script lands in the same environment whether it was invoked
+from inside `nix develop` or bare from a `just` recipe on a machine with no dev
+shell at all. Entering fresh, these values win over whatever the caller had set —
+a stray `CARGO_HOME` in someone's profile must not be able to point an *offline*
+environment at a cargo home with no vendored sources in it. A command run from
+*within* the environment inherits what is already established instead of
+recomputing it, which matters because the useful values are `$PWD`-relative:
+recomputing in a subdirectory would move `CARGO_HOME` and quietly abandon the
+mode the user had selected.
+
+The `preamble` sits outside the guard because it has to be idempotent anyway, and
+re-running it recreates state deleted between two commands.
 
 The preamble must stay self-contained — calling another entrypoint from it would
 recurse, since that one carries the same preamble. Cross-entrypoint calls are
@@ -276,7 +306,8 @@ The environment it hands over:
 | `RUST_SRC_PATH` | the pinned toolchain's `rust-src`, for rust-analyzer |
 | `EMBASSY_SRC`, `EMBASSY_TEMPLATE_SRC` | the pinned trees in the store, for grepping the HAL you are building against |
 
-All applied with `:=`, so an environment you already set wins.
+Set on entry, and inherited rather than recomputed by anything run from within —
+see [One environment, several ways in](#one-environment-several-ways-in).
 
 Two firmwares build as `checks` — an STM32F411CE from the published crates and an
 MSPM0G3507 from the git tree — so `nix flake check` proves both resolutions
