@@ -5,10 +5,11 @@
 # those commands reach the global justfile, and how the whole closure is dragged
 # into an image -- and knows nothing about crates, toolchains or registries.
 #
-# Language support arrives through ./backends: a backend is an option whose value
-# contributes packages, env, a preamble, entrypoints and bundle paths back into
-# the options below. `rust` is the only one so far; adding `julia` means writing
-# a backend and listing it, not touching this file.
+# Language support arrives as a *backend*: an option whose value sets a
+# `contributions` attrset, which is merged back into the options below. `rust`
+# (./rust) is the only one so far. Adding `julia` means writing ./julia, adding
+# it to `backendModules` and declaring the matching option -- but nothing about
+# how contributions are assembled, or anything downstream of that, changes.
 {
   pkgs,
 }:
@@ -39,11 +40,12 @@ let
   # for flake outputs are therefore merged by hand.
   mergeAttrs = lib.foldl' lib.mergeAttrs { };
 
-  # `export K=V` for the dev shell, where the shell owns the environment
-  # outright.
+  # `export K="V"` for the dev shell, where the shell owns the environment
+  # outright. Quoted, not because a path with a space is likely, but because the
+  # values are shell fragments and an unquoted one silently word-splits.
   envExports = lib.concatStrings (
     lib.mapAttrsToList (k: v: ''
-      export ${k}=${v}
+      export ${k}="${v}"
     '') config.env
   );
 
@@ -90,7 +92,7 @@ let
             or (throw "offline-devshells: entrypoints.${cmd} of shell `${name}' lists `${other}' in runtimeEntrypoints, but there is no such entrypoint.")
         ) e.runtimeEntrypoints;
       text =
-        scriptPreamble
+        lib.optionalString e.applyEnv scriptPreamble
         + builtins.replaceStrings (map (k: "@${k}@") (lib.attrNames e.substitutions)) (map toString (
           lib.attrValues e.substitutions
         )) body;

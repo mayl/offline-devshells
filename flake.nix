@@ -170,6 +170,8 @@
 
             formatter = pkgs.nixfmt-tree or pkgs.nixfmt-rfc-style;
 
+            checks.generic-layer = import ./tests/generic-layer.nix { inherit pkgs lib; };
+
             # Outside `checks` on purpose: booting it means materialising the
             # whole offline closure into a disk image, which `nix flake check`
             # has no business doing.

@@ -555,6 +555,15 @@ in
           doc = "Re-resolve every crate set against crates.io (needs network)";
           params = [ ''root="."'' ];
           file = ./scripts/refresh-seed.sh;
+
+          # This is the bootstrap command, so it must not depend on what it
+          # bootstraps. The shared preamble installs a mode's `cargoConfig`,
+          # which names its `vendorDir`, which reads its `lockFile` -- the very
+          # file this command exists to produce. Attached, the preamble would
+          # make `nix run .#<shell>-refresh-seed` fail to *evaluate* in a fresh
+          # repository, which is exactly when it is needed. It builds its own
+          # throwaway CARGO_HOMEs anyway.
+          applyEnv = false;
           runtimeInputs = [
             config.toolchain
             pkgs.git

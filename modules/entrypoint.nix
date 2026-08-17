@@ -68,6 +68,22 @@
       '';
     };
 
+    applyEnv = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Whether to prepend the shell's {option}`env` and {option}`preamble` to
+        this script.
+
+        Turn it off for a command that has to run *before* the environment
+        exists. A bootstrap command must not depend on what it bootstraps: the
+        preamble typically installs a generated configuration, and generating
+        that configuration can require artefacts the bootstrap command is there
+        to produce. With the preamble attached, such a command cannot even be
+        evaluated until it has already been run once.
+      '';
+    };
+
     doc = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
