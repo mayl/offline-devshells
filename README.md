@@ -94,6 +94,11 @@ and entrypoint on `PATH`, plus the bundle pinned into the system closure) and
 `homeModule` (the entrypoints as global-just recipes). Both are per-system, so
 reach them with flake-parts' `withSystem`.
 
+Note what `nixosModule` does *not* do: it does not make `nix develop` work on the
+resulting machine. The closure is there but the flake and its locked inputs are
+not, so there is nothing to evaluate. On such a machine the commands are the
+interface — which is the point of routing them through the global justfile.
+
 ### The generic layer
 
 `offlineShells.<name>` knows nothing about crates or compilers. It owns:

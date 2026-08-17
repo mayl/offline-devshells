@@ -343,8 +343,14 @@ in
       readOnly = true;
       description = ''
         NixOS module installing the environment system-wide: every package and
-        entrypoint on `PATH`, and the offline bundle pinned into the system
-        closure so `nix develop` also works with no network.
+        entrypoint on `PATH`, plus the whole offline bundle pinned into the
+        system closure.
+
+        Note what this does and does not give you. The commands work directly,
+        with no shell to enter -- that is the point. It does *not* make
+        `nix develop` work on the resulting machine: the closure is there, but
+        the flake and its locked inputs are not, so there is nothing to evaluate.
+        Ship those separately if you want that route.
       '';
     };
 
@@ -386,6 +392,13 @@ in
       # Not `systemPackages`: the bundle is a bag of symlinks, not something to
       # put on PATH. `extraDependencies` is exactly the "keep this in the image's
       # store, referenced by nothing" hook.
+      #
+      # Most of the bundle is already reachable from the entrypoints above -- a
+      # vendor directory is a reference of a cargo config, which is a reference of
+      # the mode script. This pins the rest: `bundlePaths` entries nothing happens
+      # to mention, and the dev shell's own build inputs. So "the environment is
+      # complete on this machine" stays true even when an entrypoint stops
+      # referring to some piece of it.
       system.extraDependencies = [ bundle ];
     };
 
