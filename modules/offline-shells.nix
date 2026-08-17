@@ -16,8 +16,39 @@
   options.perSystem = flake-parts-lib.mkPerSystemOption (
     { config, pkgs, ... }:
     let
-      shells = lib.attrValues config.offlineShells;
-      collect = attr: lib.foldl' (acc: s: acc // s.outputs.${attr} or { }) { } shells;
+      shells = config.offlineShells;
+
+      # Gather one output attribute across every shell.
+      #
+      # `apps` is the one place where two shells can genuinely collide: entrypoint
+      # names are not prefixed there, because `nix run .#embassy-generate` reading
+      # as itself is the point. A silent `//` would let one shell's app shadow
+      # another's, so say so instead. `packages` cannot collide -- every name is
+      # prefixed with the shell's -- and `devShells` are keyed by shell name.
+      collect =
+        attr:
+        let
+          perShell = lib.mapAttrs (_: s: s.outputs.${attr} or { }) shells;
+          seen = lib.zipAttrsWith (_: owners: owners) (
+            lib.mapAttrsToList (shellName: outs: lib.mapAttrs (_: _: shellName) outs) perShell
+          );
+          clashes = lib.filterAttrs (_: owners: lib.length owners > 1) seen;
+        in
+        if clashes == { } then
+          lib.foldl' lib.mergeAttrs { } (lib.attrValues perShell)
+        else
+          throw ''
+            offline-devshells: two shells contribute the same `${attr}' output.
+
+            ${lib.concatStringsSep "\n" (
+              lib.mapAttrsToList (
+                n: owners: "  ${attr}.${n} -- from ${lib.concatStringsSep " and " owners}"
+              ) clashes
+            )}
+
+            Rename the entrypoint, or set `entrypoints.<cmd>.app = false` on all
+            but one of them.
+          '';
     in
     {
       _file = ./offline-shells.nix;
