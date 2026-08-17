@@ -1,0 +1,12 @@
+# Note the absence of an `[unstable] build-std` section: cargo-embassy emits
+# one, but it is nightly-only and pulls compiler_builtins from crates.io, which
+# defeats the point of a vendored offline crate set.
+
+[target.thumbv7em-none-eabi]
+runner = 'probe-rs run --chip STM32F411CEUx'
+
+[build]
+target = "thumbv7em-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

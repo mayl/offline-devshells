@@ -1,0 +1,35 @@
+[package]
+edition = "2024"
+name = "blinky-mspm0"
+version = "0.1.0"
+
+# TI MSPM0 exists *only* in the embassy git tree -- `embassy-mspm0` is marked
+# `publish = false`, and the crates.io entry is an empty 0.0.0 placeholder. So
+# this example only resolves in git mode (`embassy-mode git`), where
+# [patch.crates-io] redirects every embassy-* crate to the pinned checkout of
+# the `embassy` flake input. Version 0.1.0 below is the version *in the tree*;
+# cargo is happy to take it from the patch even though crates.io has no such
+# release.
+#
+# Copied from the tree's own examples/mspm0g3507, with the `path = "../../.."`
+# keys dropped so the patch table supplies the sources instead.
+[dependencies]
+embassy-mspm0 = { version = "0.1.0", features = ["mspm0g3507pm", "defmt", "rt", "time-driver-any"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-time = { version = "0.5.1", features = ["defmt"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+panic-halt = "1.0.0"
+
+[[bin]]
+name = "blinky-mspm0"
+test = false
+bench = false
+
+[profile.release]
+debug = 2
+opt-level = "z"
+lto = true
