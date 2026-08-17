@@ -90,7 +90,10 @@ let
           other:
           scripts.${other}
             or (throw "offline-devshells: entrypoints.${cmd} of shell `${name}' lists `${other}' in runtimeEntrypoints, but there is no such entrypoint.")
-        ) e.runtimeEntrypoints;
+        ) e.runtimeEntrypoints
+        # `removeAttrs` rather than a filter over names: excluding *this* command
+        # is what keeps a `runtimeAll` entrypoint from depending on itself.
+        ++ lib.optionals e.runtimeAll (config.packages ++ lib.attrValues (removeAttrs scripts [ cmd ]));
       text =
         lib.optionalString e.applyEnv scriptPreamble
         + builtins.replaceStrings (map (k: "@${k}@") (lib.attrNames e.substitutions)) (map toString (
@@ -156,6 +159,30 @@ let
     inherit name;
     packages = config.packages ++ lib.attrValues scripts;
     shellHook = envExports + config.preamble + bannerHook;
+  };
+
+  # `nix develop`, for a machine that has no flake to develop.
+  #
+  # The dev shell is only reachable where the flake and its locked inputs are.
+  # Once an environment has been *installed* -- into a NixOS image, say -- there
+  # is nothing left to evaluate, so the same "drop me in it" gesture has to be an
+  # ordinary program. It gets there by carrying `runtimeAll`: the preamble
+  # already applied the environment, `writeShellApplication` already put
+  # everything on PATH, and all that remains is to hand both to a shell.
+  enterScript = {
+    doc = "Enter a shell with the ${name} environment on PATH";
+    params = [ "*cmd" ];
+    runtimeAll = true;
+    text = ''
+      if [ "$#" -gt 0 ]; then
+          exec "$@"
+      fi
+
+      ${bannerHook}
+      # $SHELL, not a shell of our choosing: this is the user's own environment
+      # to work in, and on the appliance that shell is fish.
+      exec "''${SHELL:-${lib.getExe pkgs.bashInteractive}}"
+    '';
   };
 
   # Symlinking everything into one output makes it all a runtime reference, so
@@ -224,9 +251,24 @@ in
       type = types.lines;
       default = "";
       description = ''
-        Printed on entry to the dev shell, after {option}`preamble` has run.
-        Command substitutions are evaluated, so `$(embassy-mode current)` reports
-        live state.
+        Printed on entry to the dev shell and by the generated shell entrypoint,
+        after {option}`preamble` has run. Command substitutions are evaluated, so
+        `$(embassy-mode current)` reports live state.
+      '';
+    };
+
+    enterCommand = mkOption {
+      type = types.nullOr types.str;
+      default = "${config.commandPrefix}-shell";
+      defaultText = lib.literalMD "`<commandPrefix>-shell`";
+      description = ''
+        Name of the generated entrypoint that drops the user into this
+        environment, or null to generate none.
+
+        It is what `nix develop` cannot be on a machine that has no flake: the
+        environment is installed there, but there is nothing left to evaluate.
+        Running it with arguments runs them inside the environment instead of
+        opening a shell.
       '';
     };
 
@@ -370,7 +412,10 @@ in
     env = lib.mkMerge (get "env" { });
     preamble = lib.mkMerge (get "preamble" "");
     banner = lib.mkMerge (get "banner" "");
-    entrypoints = lib.mkMerge (get "entrypoints" { });
+    entrypoints = lib.mkMerge (
+      get "entrypoints" { }
+      ++ lib.optional (config.enterCommand != null) { ${config.enterCommand} = enterScript; }
+    );
     bundlePaths = lib.mkMerge (get "bundlePaths" { });
 
     inherit

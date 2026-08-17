@@ -47,6 +47,34 @@ pkgs.testers.runNixOSTest {
         # everything else cross-compiles.
         machine.succeed("su - larry -c 'cc --version'")
 
+    with subtest("the shell entrypoint hands over the environment, with no flake in sight"):
+        machine.succeed("su - larry -c 'mkdir -p ~/work'")
+
+        # `env` and `which`, rather than a `sh -c` that dereferences the
+        # variables: `just` runs a recipe line with `sh -cu`, and a variadic
+        # `{{cmd}}` is substituted into it unquoted, so a `$VAR` in the command
+        # would be expanded by *that* shell -- before the entrypoint it is meant
+        # for ever runs, and under `-u`, fatally.
+        env = dict(
+            line.split("=", 1)
+            for line in machine.succeed(
+                "su - larry -c 'cd ~/work && just --global-justfile embassy::shell env'"
+            ).splitlines()
+            if "=" in line
+        )
+        assert env["CARGO_HOME"] == "/home/larry/work/.cargo-home", env
+        assert env["CARGO_NET_OFFLINE"] == "true", env
+        assert env["EMBASSY_SRC"].startswith("/nix/store/"), env
+        assert env["RUST_SRC_PATH"].startswith("/nix/store/"), env
+        machine.succeed("test -f /home/larry/work/.cargo-home/config.toml")
+
+        # And every other entrypoint came along on PATH.
+        for tool in ["cargo", "probe-rs", "cc", "embassy-generate", "embassy-mode"]:
+            out = machine.succeed(
+                f"su - larry -c 'cd ~/work && just --global-justfile embassy::shell which {tool}'"
+            ).strip()
+            assert out.startswith("/nix/store/"), f"{tool}: {out}"
+
     with subtest("entrypoints work through the global justfile"):
         # Runs from the invocation directory, not the justfile's directory.
         machine.succeed("su - larry -c 'mkdir -p ~/work && cd ~/work && just --global-justfile embassy::mode'")

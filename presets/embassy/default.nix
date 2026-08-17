@@ -101,6 +101,16 @@
           };
         };
 
+        # The pinned sources, named so they can be pointed at -- an editor, a
+        # `cargo doc` path, a grep through the HAL you are actually building
+        # against. `embassy-from-example` uses its own substituted copy of the
+        # first one rather than reading this, so that it keeps working when the
+        # environment is not applied.
+        env = {
+          EMBASSY_SRC = "${inputs.embassy}";
+          EMBASSY_TEMPLATE_SRC = "${inputs.embassy-template}";
+        };
+
         banner = ''
 
             embassy-generate <name> <chip>   scaffold via cargo-generate
@@ -113,6 +123,7 @@
             cargo run                        flash + attach via probe-rs
 
           The same commands are in the global justfile: jg embassy::generate, and so on.
+          To get here from anywhere, with no flake in sight: jg embassy::shell
         '';
 
         entrypoints = {

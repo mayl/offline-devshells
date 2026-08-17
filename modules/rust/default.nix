@@ -525,7 +525,24 @@ in
         config.cc
       ];
 
-      env.CARGO_HOME = config.cargoHome;
+      env = {
+        # The one that matters: the config.toml under it is what replaces
+        # crates.io with the vendor directory, so this is the whole offline crate
+        # set as far as cargo is concerned.
+        CARGO_HOME = config.cargoHome;
+
+        # Redundant with the `[net] offline` in that config, and deliberately so:
+        # a project-local `.cargo/config.toml` can override the config, but not
+        # the environment. Belt and braces on the one property this environment
+        # exists to guarantee.
+        CARGO_NET_OFFLINE = "true";
+
+        # rust-analyzer finds this through the sysroot when it is launched from a
+        # shell that has the toolchain on PATH, and does not when an editor was
+        # started some other way. Naming it costs nothing and removes a class of
+        # "goto definition does not work offline".
+        RUST_SRC_PATH = "${config.toolchain}/lib/rustlib/src/rust/library";
+      };
 
       # Self-contained on purpose: seeding the mode by calling `<prefix>-mode`
       # would recurse, because that command carries this same preamble.

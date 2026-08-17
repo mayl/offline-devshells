@@ -13,6 +13,7 @@ $ embassy-generate blinky rp2040 && cd blinky && cargo build
 Or, without a dev shell at all — the same commands live in your global justfile:
 
 ```console
+$ jg embassy::shell                      # drop into the environment, from anywhere
 $ jg embassy::generate blinky rp2040
 $ cd blinky && cargo build
 ```
@@ -132,6 +133,28 @@ declared instead:
 entrypoints.embassy-generate.runtimeEntrypoints = [ "embassy-lock" ];
 ```
 
+One entrypoint is generated for you: `<commandPrefix>-shell`, which puts every
+package and every other entrypoint on `PATH`, applies the environment, and execs
+`$SHELL` — or runs its arguments inside the environment instead.
+
+```console
+$ jg embassy::shell                      # a shell with everything set up
+$ jg embassy::shell cargo build          # or just run one thing in it
+```
+
+One wrinkle when passing a command through `just`: recipe lines run under
+`sh -cu`, and a variadic parameter is substituted into that line unquoted. So a
+`$VAR` in the command is expanded by *that* shell, before the entrypoint it was
+meant for ever runs — and under `-u` an unset one is fatal rather than empty.
+Quote it (`jg embassy::shell sh -c 'echo "$CARGO_HOME"'`) or enter the shell and
+type it there. Running the entrypoint directly, `embassy-shell ...`, has no such
+layer.
+
+This is what `nix develop` cannot be once an environment has been *installed*
+rather than evaluated: on the appliance there is no flake and no lock, so the
+"drop me in it" gesture has to be an ordinary program. Set `enterCommand = null`
+to suppress it, or point it at another name.
+
 ### Global justfile
 
 `homeModule` renders one recipe per entrypoint under `justNamespace`:
@@ -232,10 +255,28 @@ Two modes:
 `nix flake update embassy`, or `--override-input embassy ~/my-fork`, moves the
 whole git-mode environment onto a different tree.
 
-Six entrypoints: `embassy-generate` (widest chip coverage, via cargo-generate),
-`embassy-new` (via cargo-embassy), `embassy-from-example` (from the tree's own
-`examples/`, the only route to MSPM0), `embassy-lock`, `embassy-mode`,
-`embassy-refresh-seed`.
+Seven entrypoints, each also a `jg embassy::<recipe>`:
+
+| Command | `jg` | What it does |
+|---|---|---|
+| `embassy-shell` | `embassy::shell` | enter the environment, or run one command in it |
+| `embassy-generate <name> <chip>` | `embassy::generate` | scaffold via cargo-generate — widest chip coverage |
+| `embassy-new <name> <chip>` | `embassy::new` | scaffold via cargo-embassy (STM32, nRF) |
+| `embassy-from-example <example> [name]` | `embassy::from-example` | scaffold from the tree's own `examples/` — the only route to MSPM0 |
+| `embassy-lock [dir]` | `embassy::lock` | resolve a project against the vendored crate set |
+| `embassy-mode [crates-io\|git]` | `embassy::mode` | switch crate sets, or report the active one |
+| `embassy-refresh-seed [root]` | `embassy::refresh-seed` | re-resolve both crate sets (needs network) |
+
+The environment it hands over:
+
+| Variable | Points at |
+|---|---|
+| `CARGO_HOME` | `$PWD/.cargo-home` — its `config.toml` is what replaces crates.io with the vendor directory |
+| `CARGO_NET_OFFLINE` | `true`, so a project-local cargo config cannot quietly re-enable the network |
+| `RUST_SRC_PATH` | the pinned toolchain's `rust-src`, for rust-analyzer |
+| `EMBASSY_SRC`, `EMBASSY_TEMPLATE_SRC` | the pinned trees in the store, for grepping the HAL you are building against |
+
+All applied with `:=`, so an environment you already set wins.
 
 Two firmwares build as `checks` — an STM32F411CE from the published crates and an
 MSPM0G3507 from the git tree — so `nix flake check` proves both resolutions

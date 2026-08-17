@@ -37,6 +37,20 @@
       '';
     };
 
+    runtimeAll = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Put the shell's entire {option}`packages` list and every *other*
+        entrypoint on `PATH` for this script.
+
+        For a command whose job is to hand the environment to something else -- a
+        shell to work in, a wrapper that runs an arbitrary command inside the
+        environment. An ordinary entrypoint should name what it needs instead, so
+        that what it depends on stays legible.
+      '';
+    };
+
     runtimeEntrypoints = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];

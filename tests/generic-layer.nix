@@ -77,7 +77,12 @@ let
     }
     {
       name = "the NixOS module puts every entrypoint on PATH";
-      ok = lib.length shell.nixosModule.environment.systemPackages == 3;
+      # Three declared, plus the generated `demo-shell`.
+      ok = lib.length shell.nixosModule.environment.systemPackages == 4;
+    }
+    {
+      name = "a shell entrypoint is generated, and reachable as `jg demo::shell`";
+      ok = shell.scripts ? demo-shell && shell.justRecipes ? shell;
     }
   ];
 
@@ -123,6 +128,14 @@ else
       "hello world in "*/.demo) ;;
       *) fail "entrypoint produced: $greeting" ;;
     esac
+
+    # The generated shell entrypoint hands the environment to an arbitrary
+    # command -- every other entrypoint on PATH, and the env applied.
+    shell=${shell.scripts.demo-shell}/bin/demo-shell
+    "$shell" sh -c 'command -v demo-hello >/dev/null' \
+      || fail "runtimeAll did not put the other entrypoints on PATH"
+    [ "$("$shell" sh -c 'echo "$DEMO_HOME"')" = "$PWD/.demo" ] \
+      || fail "the shell entrypoint did not apply the environment"
 
     touch $out
   ''

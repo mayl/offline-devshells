@@ -25,6 +25,12 @@ $ nix develop .#myEnv
 $ cargo build
 ```
 
+Or, once the environment is installed somewhere with no flake to develop —
+`nix run .#myEnv-shell`, or `jg myEnv::shell` if you wired up the global
+justfile. Same tools, same `CARGO_HOME` pointing at the vendored crates; it just
+does not need anything evaluated. Give it arguments to run one command in the
+environment instead of opening a shell.
+
 ## Adding a crate
 
 Add it to `crates.<member>` in `flake.nix`, then re-resolve:
