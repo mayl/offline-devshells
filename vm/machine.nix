@@ -39,6 +39,22 @@ in
   # alias as a fish function, so fish is not optional here.
   programs.fish.enable = true;
 
+  # A login shell has the embassy-* commands but deliberately no bare `cargo` --
+  # see the note on `environment.systemPackages` in the shell's nixosModule. That
+  # is the right trade, but only if the way in is impossible to miss.
+  users.motd = ''
+
+    embassy offline box -- everything is in the store, nothing needs the network.
+
+      embassy-shell                    enter the environment (cargo, probe-rs, gdb)
+      embassy-shell <cmd>              or run one command in it
+      jg embassy::shell                the same, from the global justfile
+
+    The embassy-* commands work from here as they are; `cargo` and `probe-rs`
+    live inside the environment, because a cargo without it would quietly
+    resolve against the wrong crate set.
+  '';
+
   security.sudo.wheelNeedsPassword = false;
   services.openssh.enable = true;
 

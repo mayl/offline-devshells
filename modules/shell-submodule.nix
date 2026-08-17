@@ -201,6 +201,9 @@ let
     doc = "Enter a shell with the ${name} environment on PATH";
     params = [ "*cmd" ];
     runtimeAll = true;
+    # The one command worth a global-just recipe: the only one you run from
+    # outside the environment, because it is how you get inside it.
+    just.enable = true;
     text = ''
       if [ "$#" -gt 0 ]; then
           exec "$@"
@@ -440,15 +443,18 @@ in
       type = types.raw;
       readOnly = true;
       description = ''
-        NixOS module installing the environment system-wide: every package and
-        entrypoint on `PATH`, plus the whole offline bundle pinned into the
-        system closure.
+        NixOS module installing the environment: every *entrypoint* on `PATH`,
+        plus the whole offline bundle pinned into the system closure.
 
-        Note what this does and does not give you. The commands work directly,
-        with no shell to enter -- that is the point. It does *not* make
-        `nix develop` work on the resulting machine: the closure is there, but
-        the flake and its locked inputs are not, so there is nothing to evaluate.
-        Ship those separately if you want that route.
+        Note what this does and does not give you. The entrypoints work directly,
+        from any shell, with nothing to enter first -- each one applies the
+        environment itself. The raw tools are reached through the generated shell
+        entrypoint, on purpose: see the comment on `environment.systemPackages`
+        in `modules/shell-submodule.nix`.
+
+        It does *not* make `nix develop` work on the resulting machine: the
+        closure is there, but the flake and its locked inputs are not, so there
+        is nothing to evaluate.
       '';
     };
 
@@ -490,7 +496,22 @@ in
 
     nixosModule = {
       _file = "${toString ./shell-submodule.nix} (offlineShells.${name}.nixosModule)";
-      environment.systemPackages = config.packages ++ lib.attrValues scripts;
+
+      # The entrypoints, and deliberately NOT `config.packages`.
+      #
+      # An entrypoint sources the environment itself, so it is correct wherever
+      # it is run from. A bare tool is not: `cargo` on `PATH` without
+      # `CARGO_HOME` pointing at the vendored config is a compiler that *looks*
+      # configured, resolves against the user's real cargo home, finds nothing,
+      # and reaches for the network -- the one failure this environment exists to
+      # rule out. Better that a login shell have no `cargo` at all and an obvious
+      # way to get one.
+      #
+      # If you do want the raw tools system-wide, they are one line away in your
+      # own configuration:
+      #
+      #   environment.systemPackages = config.offlineShells.${name}.packages;
+      environment.systemPackages = lib.attrValues scripts;
       # Not `systemPackages`: the bundle is a bag of symlinks, not something to
       # put on PATH. `extraDependencies` is exactly the "keep this in the image's
       # store, referenced by nothing" hook.

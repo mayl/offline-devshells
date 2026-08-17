@@ -33,19 +33,23 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     machine.wait_for_unit("multi-user.target")
 
-    with subtest("the global justfile reached the user"):
+    with subtest("the global justfile reached the user, with the one recipe worth having"):
         machine.succeed("test -f /home/larry/.config/just/justfile")
         recipes = machine.succeed("su - larry -c 'just --global-justfile --list embassy'")
-        for recipe in ["generate", "new", "from-example", "mode", "lock"]:
-            assert recipe in recipes, f"{recipe} missing from the global justfile:\n{recipes}"
+        assert "shell" in recipes, recipes
+        # The scaffolders are commands, not recipes: from inside the environment
+        # `jg embassy::generate` is a longer way to write `embassy-generate`.
+        for gone in ["generate", "new", "from-example", "refresh-seed"]:
+            assert gone not in recipes, f"{gone} should not be a recipe:\n{recipes}"
 
-    with subtest("the toolchain is on PATH without entering a dev shell"):
-        machine.succeed("su - larry -c 'cargo --version'")
-        machine.succeed("su - larry -c 'rustc --version'")
-        machine.succeed("su - larry -c 'probe-rs --version'")
-        # Build scripts are host binaries and need a linker even though
-        # everything else cross-compiles.
-        machine.succeed("su - larry -c 'cc --version'")
+    with subtest("entrypoints work from a bare login shell; bare tools are not there to misuse"):
+        machine.succeed("su - larry -c 'embassy-mode --help'")
+        machine.succeed("su - larry -c 'command -v embassy-generate'")
+        # The point of keeping `packages` out of systemPackages: a `cargo` on
+        # PATH without CARGO_HOME would resolve against ~/.cargo and reach for
+        # the network, which is the one thing this box must not do.
+        machine.fail("su - larry -c 'command -v cargo'")
+        machine.fail("su - larry -c 'command -v probe-rs'")
 
     with subtest("the shell entrypoint hands over the environment, with no flake in sight"):
         machine.succeed("su - larry -c 'mkdir -p ~/work'")
@@ -75,21 +79,30 @@ pkgs.testers.runNixOSTest {
             ).strip()
             assert out.startswith("/nix/store/"), f"{tool}: {out}"
 
-    with subtest("entrypoints work through the global justfile"):
-        # Runs from the invocation directory, not the justfile's directory.
-        machine.succeed("su - larry -c 'mkdir -p ~/work && cd ~/work && just --global-justfile embassy::mode'")
-        machine.succeed("test -f /home/larry/work/.cargo-home/config.toml")
-        out = machine.succeed("su - larry -c 'cd ~/work && just --global-justfile embassy::mode git'")
+    with subtest("commands act on the invocation directory, not the justfile's"):
+        # `jg` runs the recipe with the working directory set to
+        # ~/.config/just unless the generated body corrects for it.
+        machine.succeed("su - larry -c 'mkdir -p ~/elsewhere'")
+        machine.succeed(
+            "su - larry -c 'cd ~/elsewhere && just --global-justfile embassy::shell true'"
+        )
+        machine.succeed("test -d /home/larry/elsewhere/.cargo-home")
+        machine.fail("test -e /home/larry/.config/just/.cargo-home")
+
+        # And the mode a user selects sticks, without a recipe of its own.
+        out = machine.succeed("su - larry -c 'cd ~/work && embassy-mode git'")
         assert "git" in out, out
-        machine.succeed("su - larry -c 'cd ~/work && just --global-justfile embassy::mode crates-io'")
+        assert machine.succeed("su - larry -c 'cd ~/work && embassy-mode current'").strip() == "git"
+        machine.succeed("su - larry -c 'cd ~/work && embassy-mode crates-io'")
 
     with subtest("a project scaffolds and builds with no network"):
-        machine.succeed(
-            "su - larry -c 'cd ~/work && just --global-justfile embassy::generate blinky stm32f411ce'"
-        )
+        # The whole workflow as a user would type it: enter once, then use the
+        # tools normally. No CARGO_HOME passed in by hand -- if the environment
+        # did not carry it, this build would resolve against ~/.cargo and fail.
+        machine.succeed("su - larry -c 'cd ~/work && embassy-generate blinky stm32f411ce'")
         machine.succeed("test -f /home/larry/work/blinky/Cargo.lock")
         machine.succeed(
-            "su - larry -c 'cd ~/work/blinky && CARGO_HOME=$HOME/work/.cargo-home cargo build --offline'",
+            "su - larry -c 'cd ~/work && embassy-shell sh -c \"cd blinky && cargo build\"'",
             timeout=1800,
         )
         machine.succeed("test -d /home/larry/work/blinky/target")

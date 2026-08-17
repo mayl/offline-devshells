@@ -128,8 +128,20 @@
     just = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = true;
-        description = "Whether to expose this entrypoint as a global-just recipe.";
+        default = false;
+        description = ''
+          Whether to expose this entrypoint as a global-just recipe.
+
+          Off by default, because a recipe is only worth having for a command you
+          would run from *outside* the environment. Once you are inside it, every
+          entrypoint is already on `PATH`, so `jg ns::foo` is a longer way to
+          write `foo` -- and a worse one, since `just` runs recipe lines through
+          an extra `sh -cu` that will expand a `$VAR` in your arguments before
+          the command ever sees it.
+
+          The generated shell entrypoint turns this on for itself, which is the
+          case that genuinely needs it: getting in.
+        '';
       };
 
       name = lib.mkOption {

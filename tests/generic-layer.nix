@@ -22,6 +22,10 @@ let
           env.DEMO_HOME = "$PWD/.demo";
           preamble = ''mkdir -p "$DEMO_HOME"'';
 
+          # Stands in for a toolchain: reachable inside the environment, and
+          # deliberately not installed system-wide by the NixOS module.
+          packages = [ pkgs.hello ];
+
           entrypoints = {
             demo-hello = {
               doc = "Say hello";
@@ -29,6 +33,9 @@ let
                 "who"
                 "*rest"
               ];
+              # Opted in, so the recipe-rendering assertions below have something
+              # to bite on. Entrypoints do not get a recipe by default.
+              just.enable = true;
               text = ''echo "hello $1 in $DEMO_HOME"'';
             };
             demo-wrapper = {
@@ -81,6 +88,23 @@ let
     {
       name = "a shell entrypoint is generated, and reachable as `jg demo::shell`";
       ok = shell.scripts ? demo-shell && shell.justRecipes ? shell;
+    }
+    {
+      name = "an entrypoint gets no recipe unless it asks for one";
+      # demo-wrapper and demo-bootstrap set no `just.enable`, so the only
+      # recipes are the shell's own and the one that opted in.
+      ok =
+        lib.attrNames shell.justRecipes == [
+          "hello"
+          "shell"
+        ];
+    }
+    {
+      name = "the NixOS module installs entrypoints only, never the raw tools";
+      ok =
+        shell.nixosModule.environment.systemPackages == lib.attrValues shell.scripts
+        && !lib.elem pkgs.hello shell.nixosModule.environment.systemPackages
+        && lib.elem pkgs.hello shell.packages;
     }
   ];
 
@@ -148,6 +172,8 @@ else
     shell=${shell.scripts.demo-shell}/bin/demo-shell
     "$shell" sh -c 'command -v demo-hello >/dev/null' \
       || fail "runtimeAll did not put the other entrypoints on PATH"
+    "$shell" sh -c 'command -v hello >/dev/null' \
+      || fail "runtimeAll did not put the shell's packages on PATH"
     [ "$("$shell" sh -c 'echo "$DEMO_HOME"')" = "$PWD/.demo" ] \
       || fail "the shell entrypoint did not apply the environment"
 
