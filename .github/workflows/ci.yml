@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Weekly, for the heavy job: nothing in this repository changes between
+    # pushes, but a full build is what notices a toolchain or crate download
+    # that has gone away.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  # Cheap: evaluation, the two module tests, formatting, and the template. No
+  # toolchain, no crate downloads, no firmware.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Evaluate every output on every system
+        run: nix flake check --no-build --all-systems
+
+      - name: Module tests
+        run: >
+          nix build --print-build-logs --no-link
+          .#checks.x86_64-linux.generic-layer
+          .#checks.x86_64-linux.rust-backend
+
+      - name: Formatting is clean
+        run: |
+          nix fmt
+          git diff --exit-code
+
+      # The template is the first thing a new user runs, and nothing else
+      # exercises it. Its lock is a placeholder, so: refresh-seed must
+      # evaluate, and everything else must refuse with the message that says to
+      # run it.
+      - name: Template evaluates
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          cd "$scratch"
+          nix flake init -t "$GITHUB_WORKSPACE"
+          git init -q . && git add -A
+          o=(--override-input offline-devshells "$GITHUB_WORKSPACE" --no-write-lock-file)
+          nix eval --raw "${o[@]}" .#packages.x86_64-linux.myEnv-refresh-seed.drvPath
+          if nix eval --raw "${o[@]}" .#devShells.x86_64-linux.myEnv.drvPath 2>err; then
+            echo "the dev shell evaluated against a placeholder lock" >&2
+            exit 1
+          fi
+          grep -q 'has not' err || { cat err; exit 1; }
+
+  # Heavy: the toolchain, both vendored crate sets, both example firmwares, and
+  # the whole offline bundle -- building the bundle builds every entrypoint,
+  # which is also what shellchecks the embassy scripts. Scheduled and on
+  # demand only. The VM boot test (`embassy-box-test`) stays manual.
+  build:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nix flake check
+        run: nix flake check --print-build-logs
+
+      - name: The offline bundle
+        run: nix build --print-build-logs --no-link .#embassy

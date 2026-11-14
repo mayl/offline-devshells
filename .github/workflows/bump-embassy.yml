@@ -1,0 +1,52 @@
+# UNTESTED: written alongside the README's "Bumping" routine but never run.
+# Expect to adjust it on first use (runner disk space, refresh-seed run time,
+# the repository's Actions permissions for opening PRs).
+#
+# Moves the `embassy` input to current main, re-resolves both crate sets
+# against it, proves both firmwares still build, and opens a PR with the result.
+# Major-version bumps in presets/embassy/crates.nix are still a human's job: if
+# embassy has released new majors, this PR will build against the old ones (or
+# fail), and says nothing about it.
+name: Bump embassy
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Update the embassy input
+        run: nix flake update embassy
+
+      # Needs network, and takes 10-15 minutes, almost all of it fetching the
+      # crates.io sparse index.
+      - name: Re-resolve both crate sets
+        run: nix run .#embassy-refresh-seed
+
+      - name: Both firmwares still build
+        run: nix flake check --print-build-logs
+
+      - uses: peter-evans/create-pull-request@v8
+        with:
+          branch: bump/embassy
+          title: Bump embassy and re-resolve the offline crate sets
+          commit-message: Bump embassy and re-resolve the offline crate sets
+          body: |
+            `nix flake update embassy`, then `embassy-refresh-seed`; `nix flake check`
+            passed with the result.
+
+            Not checked: whether embassy released new majors that
+            `presets/embassy/crates.nix` should move to (see "Bumping" in the README).
