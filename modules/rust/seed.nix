@@ -78,8 +78,6 @@ let
     '';
 in
 {
-  inherit renderDep;
-
   # `crates` and `extraManifest` in, a workspace directory in the store out.
   mkSeed =
     {

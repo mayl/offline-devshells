@@ -119,7 +119,7 @@ evaluate. `<name>-shell` is what replaces it.
 
 | Option | Meaning |
 |---|---|
-| `packages` | on `PATH`, in the shell and in `environment.systemPackages` |
+| `packages` | on `PATH` inside the environment — the dev shell and `<prefix>-shell`, not system-wide |
 | `env` | shell fragments, expanded at run time — `CARGO_HOME = "$PWD/.cargo-home"` |
 | `preamble` | shell run before any tool, in the shell hook *and* every entrypoint; must be idempotent |
 | `entrypoints.<cmd>` | the commands the environment provides |
@@ -185,7 +185,7 @@ $ jg embassy::shell                      # a shell with everything set up
 $ jg embassy::shell cargo build          # or just run one thing in it
 ```
 
-### One recipe, not seven
+### One recipe, not one per command
 
 `just.enable` defaults to **false**, and the shell entrypoint is the only thing
 that turns it on for itself.
@@ -212,24 +212,30 @@ to suppress it, or point it at another name.
 
 ### Global justfile
 
-`homeModule` renders one recipe per entrypoint under `justNamespace`:
+`homeModule` renders one recipe per entrypoint that sets `just.enable` — by
+default only the shell entrypoint — into
+`programs.globalJust.namespaces.<justNamespace>`, which nix-global-just writes to
+`~/.config/just/<namespace>.just` and pulls in with `mod <namespace>`:
 
 ```just
-# Scaffold via cargo-generate (STM32, nRF, RP2040/RP2350)
-generate name chip *flags:
-    @cd "{{invocation_directory()}}" && exec /nix/store/…/bin/embassy-generate "{{name}}" "{{chip}}" {{flags}}
+# Enter a shell with the embassy environment on PATH
+[no-cd]
+shell *cmd:
+    @exec /nix/store/…/bin/embassy-shell {{cmd}}
 ```
 
-Two details are load-bearing. The `cd` is there because `just` runs a recipe with
-the working directory set to the *justfile's* directory — for a global justfile
-that is `~/.config/just`, which is read-only under Home Manager and nowhere near
-your project. And the embedded store paths make the tools runtime references of
-the rendered justfile, which is what drags the whole closure into a machine that
-merely installs it.
+Two details are load-bearing. `[no-cd]` is there because `just` otherwise runs a
+recipe with the working directory set to the *justfile's* directory — for a
+global justfile that is `~/.config/just`, which is read-only under Home Manager
+and nowhere near your project. And the embedded store paths make the tools
+runtime references of the rendered justfile, which is what drags the whole
+closure into a machine that merely installs it.
 
 It only *defines* `programs.globalJust` options. Import
 [`nix-global-just`](https://github.com/mayl/nix-global-just)'s
-`homeManagerModules.default` alongside it, which declares them.
+`homeManagerModules.default` alongside it, which declares them. Its `jg` command
+is a fish function (written only when Home Manager's `programs.fish.enable` is
+on) and a bash/zsh alias.
 
 ### The rust backend
 
@@ -269,14 +275,21 @@ Resolving needs network; vendoring must not. So resolution happens once, and its
 result is committed:
 
 ```console
-$ nix run .#myEnv-refresh-seed        # or: jg myEnv::refresh-seed
+$ nix run .#myEnv-refresh-seed        # or, inside the environment: myEnv-refresh-seed
 $ git add locks/ && git commit
 ```
 
 That regenerates each mode's lock from the seed workspace the module renders, and
 re-learns any `vendorHashFile` by writing a hash that cannot be right, building,
-and reading back the one Nix reports. Patched modes are slow — 10–15 minutes is
-normal, almost all of it fetching the crates.io sparse index.
+and reading back the one Nix reports (with your own `nix` — it is not pinned). If
+that build fails for any other reason, the old hash is put back and the build
+output shown. Patched modes are slow — 10–15 minutes is normal, almost all of it
+fetching the crates.io sparse index.
+
+It is the one command that works before anything is resolved: a placeholder lock
+(`version = 4` and no packages) makes every other output refuse to evaluate with
+a message pointing here. `lockPath` must name the same file as `lockFile`, and
+`vendorHashPath` as `vendorHashFile`; evaluation checks that.
 
 **Features matter to vendoring only insofar as they gate optional dependencies.**
 Enabling one that merely flips a `cfg` changes nothing about what is fetched. So
@@ -292,11 +305,10 @@ and `embassy-template` inputs, so a consumer gets a pinned tree without declarin
 one:
 
 ```nix
-imports = [
-  inputs.offline-devshells.flakeModules.default
-  inputs.offline-devshells.flakeModules.embassy
-];
+imports = [ inputs.offline-devshells.flakeModules.embassy ];
 ```
+
+(It imports `flakeModules.default` itself; listing both is harmless.)
 
 Two modes:
 
@@ -307,17 +319,20 @@ Two modes:
   reach chips that have no release yet: TI MSPM0, i.MX RT, MCX A. ~400 registry
   crates plus four PACs from git.
 
-`nix flake update embassy`, or `--override-input embassy ~/my-fork`, moves the
-whole git-mode environment onto a different tree.
+The git mode's lock and vendor hash are resolved against the pinned tree. A
+different tree — `nix flake update embassy`, `--override-input embassy
+~/my-fork` — generally pulls different registry crates and git revisions, so it
+needs those re-resolved (`embassy-refresh-seed`) before git mode builds offline.
+In this repository that is the "Bumping" routine below; from another flake, see
+[Changing the preset from your own flake](#changing-the-preset-from-your-own-flake).
 
-Seven commands. Only the first is also a `jg` recipe — see
-[One recipe, not seven](#one-recipe-not-seven).
+Six commands. Only the first is also a `jg` recipe — see
+[One recipe, not one per command](#one-recipe-not-one-per-command).
 
 | Command | What it does |
 |---|---|
 | `embassy-shell [cmd…]` — also `jg embassy::shell` | enter the environment, or run one command in it |
-| `embassy-generate <name> <chip>` | scaffold via cargo-generate — widest chip coverage |
-| `embassy-new <name> <chip>` | scaffold via cargo-embassy (STM32, nRF) |
+| `embassy-generate <name> <chip>` | scaffold via cargo-generate (STM32, nRF, RP2040/RP2350) |
 | `embassy-from-example <example> [name]` | scaffold from the tree's own `examples/` — the only route to MSPM0 |
 | `embassy-lock [dir]` | resolve a project against the vendored crate set |
 | `embassy-mode [crates-io\|git]` | switch crate sets, or report the active one |
@@ -337,7 +352,39 @@ see [One environment, several ways in](#one-environment-several-ways-in).
 
 Two firmwares build as `checks` — an STM32F411CE from the published crates and an
 MSPM0G3507 from the git tree — so `nix flake check` proves both resolutions
-actually compile rather than merely evaluate.
+actually compile rather than merely evaluate. Neither commits a `Cargo.lock`:
+each resolves one at build time the way `embassy-lock` does for your project.
+(Importing the preset brings these checks into your flake too, so your `nix
+flake check` builds them.)
+
+### Changing the preset from your own flake
+
+Used unchanged, the preset needs nothing from you: its locks live in
+offline-devshells and match its pinned tree. To widen its crate set
+(`offlineShells.embassy.rust.modes.<mode>.crates…`) or put git mode on another
+embassy tree, the locks have to live in *your* repository, because
+`embassy-refresh-seed` rewrites them:
+
+```console
+$ src=$(nix eval --raw --impure --expr \
+    '(builtins.getFlake (toString ./.)).inputs.offline-devshells.outPath')
+$ mkdir -p locks/embassy
+$ install -m 0644 "$src"/presets/embassy/locks/* locks/embassy/
+```
+
+```nix
+embassyPreset.locksDir = ./locks/embassy;
+# embassyPreset.locksPath = "locks/embassy";   # derived; set it only if the flake is not the repo root
+```
+
+```console
+$ git add locks/embassy
+$ nix run .#embassy-refresh-seed        # with network
+$ git add locks/embassy && git commit
+```
+
+Run against the preset's own locks from another flake, `embassy-refresh-seed`
+stops and says so rather than writing somewhere unexpected.
 
 ## The appliance
 
@@ -370,6 +417,12 @@ $ nix build .#embassy-box-test         # boot it and assert the environment work
 The boot test is deliberately outside `checks`: it materialises the whole 3.8 GiB
 closure into a disk image, which `nix flake check` has no business doing.
 
+The appliance lives in a flake-parts *partition* (`dev/`): its inputs —
+vm-parts, Home Manager, nix-global-just — are declared and locked in
+`dev/flake.nix`, so a flake that merely imports these modules never locks or
+fetches them. The machine is still evaluated against the root `nixpkgs`, so the
+environment in the image is exactly `nix build .#embassy`.
+
 Two things to know about the OVA:
 
 - **Guest additions are off.** nixpkgs' `virtualbox-image.nix` turns them on
@@ -395,9 +448,47 @@ modules/
     seed.nix                  crates.<member>.<dep> -> seed workspace
     scripts/                  mode.sh, refresh-seed.sh (generated from `modes`)
 presets/embassy/              the embassy environment: crates, scripts, locks, firmware
+dev/                          the appliance's partition: its inputs, and vms.embassy-box
 vm/                           machine.nix, test.nix
+tests/                        generic-layer.nix, rust-backend.nix (both in `checks`)
 template/                     nix flake init -t github:mayl/offline-devshells
 ```
+
+## Bumping
+
+Nothing here moves on its own; `flake.lock` and `dev/flake.lock` pin everything.
+
+**nixpkgs / flake-parts / rust-overlay** — `nix flake update <input>`. Keep
+`dev/flake.lock`'s `dev-nixpkgs` and `dev-flake-parts` at the same revisions
+(`nix flake update --flake ./dev dev-nixpkgs dev-flake-parts`, then check the
+revs match): they only deduplicate that lock, but matching revisions cost
+nothing to fetch. Re-check the VirtualBox guest-additions `mkForce` in
+`dev/flake-module.nix` on every nixpkgs bump.
+
+**vm-parts / Home Manager / nix-global-just** — `nix flake update --flake ./dev
+<input>`.
+
+**embassy** — the expensive one:
+
+1. `nix flake update embassy`
+2. `nix run .#embassy-refresh-seed` (network; 10–15 minutes) — rewrites both
+   locks and `git-vendor-hash.nix`.
+3. If embassy released new majors, bump the versions in
+   `presets/embassy/crates.nix` (`common.embassy-executor` and friends), in the
+   two example firmwares' `Cargo.toml`, and in `template/flake.nix`, then run
+   refresh-seed again.
+4. `nix flake check` — builds both firmwares against the new crate sets. They
+   resolve their own `Cargo.lock` at build time, so there is no lock of theirs
+   to bump.
+
+**Rust** — `rust.version` in `presets/embassy/default.nix` and in
+`template/flake.nix` (a separate flake, so it cannot share the value). The
+README and the example in `modules/offline-shells.nix` / `flake-module.nix`
+name it too, as plain text. Update `rust-overlay` first if the version is newer
+than its pin.
+
+CI's weekly bump workflow runs the embassy routine and opens a PR; see
+`.github/workflows/`.
 
 ## Relationship to lpmTemplates
 

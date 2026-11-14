@@ -1,22 +1,77 @@
 # The `embassy` preset: an offline Embassy environment, ready to use.
 #
 # A flake-parts module closing over *this* flake's inputs, so a consumer gets the
-# pinned embassy tree and chip template without having to declare them. Override
-# them from the consuming flake if you want a different tree:
-#
-#   inputs.offline-devshells.inputs.embassy.follows = "my-embassy";
-#   nix develop --override-input offline-devshells/embassy ~/embassy
+# pinned embassy tree and chip template without having to declare them.
 #
 # Everything here is ordinary `offlineShells.embassy` configuration -- there is
 # nothing the preset can do that a consumer could not write themselves.
+#
+# Its locks live in this repository. Used as-is from another flake that is
+# fine: the pinned locks match the pinned tree. To change the crate set, or move
+# git mode onto a different embassy tree, the locks have to move into *your*
+# repository, because refresh-seed rewrites them -- see `embassyPreset.locksDir`.
 { inputs }:
-{ lib, ... }:
+{
+  lib,
+  config,
+  ...
+}:
+let
+  top = config;
+  cfg = config.embassyPreset;
+in
 {
   _file = ./default.nix;
   _class = "flake";
   key = "offline-devshells/presets/embassy";
 
-  perSystem =
+  # The preset is `offlineShells.embassy`, so it needs the module that declares
+  # `offlineShells`. Importing it here means one import is enough; it is keyed,
+  # so importing `flakeModules.default` as well is harmless.
+  imports = [ ../../flake-module.nix ];
+
+  options.embassyPreset = {
+    locksDir = lib.mkOption {
+      type = lib.types.path;
+      default = ./locks;
+      defaultText = lib.literalMD "offline-devshells' own `presets/embassy/locks`";
+      example = lib.literalExpression "./locks/embassy";
+      description = ''
+        Directory holding the preset's `crates-io.lock`, `git.lock` and
+        `git-vendor-hash.nix`.
+
+        The default -- this flake's own copies -- is right as long as you use
+        the preset unchanged. Point it at a directory in your repository (start
+        by copying offline-devshells' files there) when you widen the crate set
+        or override the `embassy` input, then run `embassy-refresh-seed`.
+      '';
+    };
+
+    locksPath = lib.mkOption {
+      type = lib.types.str;
+      defaultText = lib.literalMD "{option}`locksDir`, relative to the root of the flake it lives in";
+      example = "locks/embassy";
+      description = ''
+        {option}`locksDir` relative to the repository root: where
+        `embassy-refresh-seed` writes. Derived from {option}`locksDir` by
+        stripping the flake's store prefix, which is right whenever the flake is
+        the repository root; set it by hand otherwise.
+      '';
+    };
+  };
+
+  config.embassyPreset.locksPath = lib.mkOptionDefault (
+    let
+      # /nix/store/<hash>-source/<path in repo>
+      parts = lib.splitString "/" (toString cfg.locksDir);
+    in
+    if lib.hasPrefix "${builtins.storeDir}/" (toString cfg.locksDir) && lib.length parts > 4 then
+      lib.concatStringsSep "/" (lib.drop 4 parts)
+    else
+      throw "offline-devshells: cannot derive `embassyPreset.locksPath` from ${toString cfg.locksDir}; set it explicitly."
+  );
+
+  config.perSystem =
     { config, pkgs, ... }:
     let
       crates = import ./crates.nix { inherit lib; };
@@ -30,13 +85,18 @@
         inherit pkgs lib;
         inherit (rust) toolchain;
         cargoConfigs = lib.mapAttrs (_: m: m.cargoConfig) rust.modes;
+        gitSeedLock = top.embassyPreset.locksDir + "/git.lock";
+      };
+
+      lock = file: {
+        lockFile = top.embassyPreset.locksDir + "/${file}";
+        lockPath = "${top.embassyPreset.locksPath}/${file}";
       };
     in
     {
       offlineShells.embassy = {
         packages = [
           pkgs.probe-rs-tools
-          pkgs.cargo-embassy
           pkgs.cargo-generate
           pkgs.cargo-binutils
         ]
@@ -48,7 +108,8 @@
         rust = {
           # Pinned rather than `stable.latest` so that updating the rust-overlay
           # input can't silently swap the compiler out from under a vendored
-          # crate set that was resolved against a particular MSRV.
+          # crate set that was resolved against a particular MSRV. The one place
+          # the preset names it; the README's "Bumping" section lists the rest.
           version = "1.97.1";
 
           extensions = [
@@ -78,17 +139,14 @@
           modes.crates-io = {
             description = "published embassy releases";
             crates = crates.cratesIo;
-            lockFile = ./locks/crates-io.lock;
-            lockPath = "presets/embassy/locks/crates-io.lock";
-          };
+          }
+          // lock "crates-io.lock";
 
           modes.git = {
             description = "embassy from the pinned git tree";
             crates = crates.git;
-            lockFile = ./locks/git.lock;
-            lockPath = "presets/embassy/locks/git.lock";
-            vendorHashFile = ./locks/git-vendor-hash.nix;
-            vendorHashPath = "presets/embassy/locks/git-vendor-hash.nix";
+            vendorHashFile = top.embassyPreset.locksDir + "/git-vendor-hash.nix";
+            vendorHashPath = "${top.embassyPreset.locksPath}/git-vendor-hash.nix";
 
             # Every embassy-* crate in the pinned tree, including the six marked
             # `publish = false` (embassy-mspm0 among them). Patching a name that
@@ -98,7 +156,8 @@
               src = inputs.embassy;
               prefix = "embassy-";
             };
-          };
+          }
+          // lock "git.lock";
         };
 
         # The pinned sources, named so they can be pointed at -- an editor, a
@@ -114,37 +173,18 @@
         banner = ''
 
             embassy-generate <name> <chip>   scaffold via cargo-generate
-                                             (STM32, nRF, RP2040/RP2350) -- widest coverage
-            embassy-new <name> <chip>        scaffold via cargo-embassy (STM32, nRF)
+                                             (STM32, nRF, RP2040/RP2350)
             embassy-from-example <example>   scaffold from embassy's own examples
                                              (every family, incl. MSPM0; needs git mode)
             embassy-mode git|crates-io       published releases vs. the pinned git tree
             cargo build                      build it (vendored crates, no network)
             cargo run                        flash + attach via probe-rs
 
-          The same commands are in the global justfile: jg embassy::generate, and so on.
-          To get here from anywhere, with no flake in sight: jg embassy::shell
+          To get back in from anywhere, with no flake in sight: embassy-shell,
+          or jg embassy::shell from the global justfile.
         '';
 
         entrypoints = {
-          # Wraps `cargo embassy init` and repairs what it emits; see the
-          # script's own header for the list of things it has to fix.
-          embassy-new = {
-            doc = "Scaffold an Embassy project via cargo-embassy (STM32, nRF)";
-            params = [
-              "name"
-              "chip"
-              "*flags"
-            ];
-            file = ./scripts/embassy-new.sh;
-            runtimeInputs = [
-              pkgs.cargo-embassy
-              pkgs.gnused
-              pkgs.gawk
-            ];
-            runtimeEntrypoints = [ "embassy-lock" ];
-          };
-
           embassy-generate = {
             doc = "Scaffold via cargo-generate (STM32, nRF, RP2040/RP2350)";
             params = [
@@ -193,7 +233,7 @@
             # script -- would change on every edit to any file in the flake. Keyed
             # on the lock's content, it only rebuilds when the lock changes.
             substitutions.gitSeedLock = pkgs.writeText "seed-git-Cargo.lock" (
-              builtins.readFile ./locks/git.lock
+              builtins.readFile (top.embassyPreset.locksDir + "/git.lock")
             );
             runtimeEntrypoints = [ "embassy-mode" ];
           };

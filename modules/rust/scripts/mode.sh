@@ -15,18 +15,17 @@
 # Locks are resolution-specific: after switching, delete Cargo.lock and
 # regenerate it in any project that was resolved in another mode.
 #
-# GENERATED from offline-devshells' rust backend: the mode tables below are
-# substituted from `rust.modes`.
+# GENERATED from offline-devshells' rust backend: the mode tables are a
+# generated file, sourced below.
 set -euo pipefail
 
 prefix="@commandPrefix@"
 marker="$CARGO_HOME/$prefix-mode"
 
-declare -A configs=(
-@modeConfigs@)
-
-declare -A descriptions=(
-@modeDescriptions@)
+# Filled in by the sourced file, from `rust.modes`.
+declare -A configs=() descriptions=()
+# shellcheck source=/dev/null  # a store path, generated from `rust.modes`
+source "@modeTables@"
 
 usage() {
     {

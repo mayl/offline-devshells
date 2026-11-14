@@ -71,9 +71,11 @@ if [ ! -f "$src/Cargo.toml" ]; then
 fi
 
 # A handful of examples pull crates straight from git (assign-resources,
-# reqwless, defmt-serial, embedded-fatfs, stm32wb-hci, nrf-pac). Those are not
-# in the vendor directory, and cargo's own error for it is unhelpful, so say
-# plainly what is wrong before creating anything.
+# reqwless, defmt-serial, embedded-fatfs, stm32wb-hci, nrf-pac). Those git
+# revisions are not in the vendor directory -- the crates.io `stm32wb-hci`
+# release the seed vendors is a different source as far as cargo is concerned
+# -- and cargo's own error for it is unhelpful, so say plainly what is wrong
+# before creating anything.
 #
 # `|| true`: grep exits 1 when nothing matches, and pipefail would turn that
 # into an aborted script under `set -e`.

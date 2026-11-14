@@ -5,6 +5,9 @@ version = "0.1.0"
 
 # Originally produced by `cargo embassy init --chip stm32f411ce`, with the
 # embassy-executor dependency the generator omits added back in.
+#
+# No Cargo.lock is committed: the check resolves one against the vendored set at
+# build time, the way `embassy-lock` does for a user's project.
 [dependencies]
 cortex-m = { version = "0.7.8", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.6"

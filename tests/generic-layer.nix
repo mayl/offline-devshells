@@ -67,8 +67,12 @@ let
       ok = shell.justRecipes.hello.doc == "Say hello";
     }
     {
-      name = "recipe bodies run in the invocation directory, not the justfile's";
-      ok = lib.hasPrefix ''@cd "{{invocation_directory()}}" && exec '' shell.justRecipes.hello.body;
+      name = "recipes run in the invocation directory, not the justfile's";
+      ok = lib.elem "no-cd" shell.justRecipes.hello.attributes;
+    }
+    {
+      name = "recipe bodies exec the entrypoint without echoing the line";
+      ok = lib.hasPrefix "@exec /nix/store/" shell.justRecipes.hello.body;
     }
     {
       name = "named parameters are quoted and variadic ones are not";
@@ -78,7 +82,9 @@ let
     }
     {
       name = "the home module defines recipes under the shell's namespace";
-      ok = shell.homeModule.programs.globalJust.recipes ? demo;
+      ok =
+        shell.homeModule.programs.globalJust.namespaces.demo == shell.justRecipes
+        && !(shell.homeModule.programs.globalJust ? recipes);
     }
     {
       name = "the NixOS module puts every entrypoint on PATH";

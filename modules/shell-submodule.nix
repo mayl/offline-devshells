@@ -138,16 +138,19 @@ let
     cmd: e:
     lib.nameValuePair (justName cmd e) {
       inherit (e) doc params;
-      # One line, so `just` runs it with `sh -c` and no shebang-recipe
-      # indentation question arises. Variadic parameters stay unquoted, because
-      # the whole point of `*flags` is that it expands to separate words.
-      #
-      # The `cd` is load-bearing. `just` runs a recipe with the working directory
-      # set to the justfile's own directory -- for a *global* justfile that is
+
+      # Load-bearing, so stated here even though nix-global-just defaults to it.
+      # Without `[no-cd]`, `just` runs a recipe with the working directory set
+      # to the justfile's own directory -- for a *global* justfile that is
       # ~/.config/just, which is both read-only under Home Manager and nowhere
       # near the project. Entrypoints here are all project-relative (a
       # `$PWD/.cargo-home`, a scaffold written into the current directory), so
-      # without this they would operate on the config directory.
+      # they have to run where the user invoked them.
+      attributes = [ "no-cd" ];
+
+      # One line, so `just` runs it with `sh -c` and no shebang-recipe
+      # indentation question arises. Variadic parameters stay unquoted, because
+      # the whole point of `*flags` is that it expands to separate words.
       body =
         let
           arg =
@@ -163,7 +166,7 @@ let
             # `@` so `just` does not echo the line first: the user typed
             # `jg embassy::generate blinky rp2040` and does not need to see a
             # store path echoed back at them.
-            ''@cd "{{invocation_directory()}}" && exec ${lib.getExe scripts.${cmd}}''
+            "@exec ${lib.getExe scripts.${cmd}}"
           ]
           ++ map arg e.params
         );
@@ -248,8 +251,12 @@ in
       type = types.listOf types.package;
       default = [ ];
       description = ''
-        Packages on `PATH`, both in the dev shell and in
-        {option}`environment.systemPackages` of the generated NixOS module.
+        Packages on `PATH` inside the environment: in the dev shell, and in the
+        generated `<commandPrefix>-shell` entrypoint.
+
+        Deliberately *not* installed system-wide by {option}`nixosModule`: a
+        bare tool on a login shell's `PATH` runs without the environment applied.
+        See that option for why, and for the one line that does it anyway.
 
         Backends add their own (the Rust toolchain, say); this is for whatever
         else the environment needs.
@@ -335,7 +342,8 @@ in
       description = ''
         The commands this environment provides. Each becomes a package in the dev
         shell, a `packages.<shell>-<cmd>` flake output, an `apps.<cmd>`, an entry
-        in the offline bundle, and a recipe in the global justfile.
+        in the offline bundle, and -- only if it sets `just.enable` -- a recipe
+        in the global justfile.
       '';
     };
 
@@ -424,14 +432,16 @@ in
     justRecipes = mkOption {
       type = types.attrsOf types.raw;
       readOnly = true;
-      description = "The `programs.globalJust.recipes.<namespace>` attrset this shell generates.";
+      description = "The `programs.globalJust.namespaces.<namespace>` attrset this shell generates.";
     };
 
     homeModule = mkOption {
       type = types.raw;
       readOnly = true;
       description = ''
-        Home Manager module putting the entrypoints in the global justfile.
+        Home Manager module putting the entrypoints that set `just.enable` --
+        by default only the generated `<commandPrefix>-shell` -- in the global
+        justfile, under `namespaces.<justNamespace>`.
 
         Import `nix-global-just`'s own `homeManagerModules.default` alongside it:
         this module only *defines* `programs.globalJust` options, it does not
@@ -490,7 +500,7 @@ in
       _file = "${toString ./shell-submodule.nix} (offlineShells.${name}.homeModule)";
       programs.globalJust = {
         enable = lib.mkDefault true;
-        recipes.${config.justNamespace} = justRecipes;
+        namespaces.${config.justNamespace} = justRecipes;
       };
     };
 
@@ -547,8 +557,6 @@ in
         program = lib.getExe scripts.${cmd};
         meta = lib.optionalAttrs (e.doc != null) { description = e.doc; };
       }) (lib.filterAttrs (_: e: e.app) config.entrypoints);
-
-      checks = mergeAttrs (get "checks" { });
     };
   };
 }

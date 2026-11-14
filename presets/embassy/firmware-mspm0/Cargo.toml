@@ -13,6 +13,9 @@ version = "0.1.0"
 #
 # Copied from the tree's own examples/mspm0g3507, with the `path = "../../.."`
 # keys dropped so the patch table supplies the sources instead.
+#
+# No Cargo.lock is committed: the check seeds one from the git-mode lock at
+# build time, the way `embassy-lock` does for a user's project.
 [dependencies]
 embassy-mspm0 = { version = "0.1.0", features = ["mspm0g3507pm", "defmt", "rt", "time-driver-any"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }

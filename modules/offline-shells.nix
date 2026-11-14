@@ -20,11 +20,12 @@
 
       # Gather one output attribute across every shell.
       #
-      # `apps` is the one place where two shells can genuinely collide: entrypoint
-      # names are not prefixed there, because `nix run .#embassy-generate` reading
-      # as itself is the point. A silent `//` would let one shell's app shadow
-      # another's, so say so instead. `packages` cannot collide -- every name is
-      # prefixed with the shell's -- and `devShells` are keyed by shell name.
+      # `apps` is where two shells most plausibly collide: entrypoint names are
+      # not prefixed there, because `nix run .#embassy-generate` reading as
+      # itself is the point. A silent `//` would let one shell's app shadow
+      # another's, so say so instead -- and check every attribute the same way,
+      # since prefixed `packages` names can still meet in odd cases (shell `a`
+      # with entrypoint `b-x`, shell `a-b` with entrypoint `x`).
       collect =
         attr:
         let
@@ -90,7 +91,6 @@
         devShells = collect "devShells";
         packages = collect "packages";
         apps = collect "apps";
-        checks = collect "checks";
       };
     }
   );

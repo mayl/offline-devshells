@@ -5,9 +5,9 @@
 # become both a qemu run script and a VirtualBox appliance.
 #
 # The environment itself is not described here. It arrives as
-# `offlineShells.embassy.nixosModule` (packages, and the offline bundle pinned
-# into the system closure) and `offlineShells.embassy.homeModule` (the global
-# justfile), both wired up in ../flake.nix.
+# `offlineShells.embassy.nixosModule` (the entrypoints, and the offline bundle
+# pinned into the system closure) and `offlineShells.embassy.homeModule` (the
+# global justfile), both wired up in ../dev/flake-module.nix.
 {
   lib,
   pkgs,
@@ -35,8 +35,9 @@ in
   users.groups.plugdev = { };
   users.users.root.initialPassword = "embassy";
 
-  # nix-global-just installs its `jg` completion as a fish completion and its
-  # alias as a fish function, so fish is not optional here.
+  # The user's login shell. nix-global-just's `jg` is a fish function with fish
+  # completions (Home Manager's `programs.fish.enable`, set alongside the home
+  # module in ../dev/flake-module.nix, is what writes those).
   programs.fish.enable = true;
 
   # A login shell has the embassy-* commands but deliberately no bare `cargo` --
@@ -82,7 +83,7 @@ in
   '';
 
   # Guest additions are deliberately NOT enabled here; see the `mkForce false`
-  # and its reasoning in ../flake.nix. Note that USB passthrough of a debug probe
+  # and its reasoning in ../dev/flake-module.nix. Note that USB passthrough of a debug probe
   # does not depend on them -- that is arranged host-side, by a VirtualBox USB
   # filter plus the Extension Pack.
 
@@ -118,7 +119,7 @@ in
   time.timeZone = lib.mkDefault "UTC";
   console.keyMap = lib.mkDefault "us";
 
-  # VirtualBox sizing lives in ../flake.nix, under
+  # VirtualBox sizing lives in ../dev/flake-module.nix, under
   # `vms.embassy-box.formatModules.virtualbox`: the `virtualbox.*` options are
   # declared by that format's module, so setting them here would break every
   # other format this machine builds.

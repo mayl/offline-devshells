@@ -12,13 +12,15 @@
 # than merely unused.
 {
   pkgs,
-  machineModules,
+  # The appliance's own `vms.embassy-box.modules`, so the test boots the
+  # configuration the appliance ships.
+  modules,
 }:
 pkgs.testers.runNixOSTest {
   name = "embassy-box";
 
   nodes.machine = {
-    imports = machineModules;
+    imports = modules;
 
     # `virtualisation.diskSize` here is the test's scratch image, not the
     # appliance's -- it has to fit the closure the guest is handed.
@@ -35,11 +37,19 @@ pkgs.testers.runNixOSTest {
 
     with subtest("the global justfile reached the user, with the one recipe worth having"):
         machine.succeed("test -f /home/larry/.config/just/justfile")
+        # nix-global-just renders each namespace as its own module file,
+        # pulled into the main justfile with `mod embassy`.
+        machine.succeed("test -f /home/larry/.config/just/embassy.just")
+        machine.succeed("grep -qx 'mod embassy' /home/larry/.config/just/justfile")
+        # Recipes run where they are invoked, not in ~/.config/just.
+        machine.succeed("grep -q 'no-cd' /home/larry/.config/just/embassy.just")
+        # `jg` is a fish function, written only because Home Manager's fish is on.
+        machine.succeed("su - larry -c 'functions -q jg'")
         recipes = machine.succeed("su - larry -c 'just --global-justfile --list embassy'")
         assert "shell" in recipes, recipes
         # The scaffolders are commands, not recipes: from inside the environment
         # `jg embassy::generate` is a longer way to write `embassy-generate`.
-        for gone in ["generate", "new", "from-example", "refresh-seed"]:
+        for gone in ["generate", "from-example", "refresh-seed"]:
             assert gone not in recipes, f"{gone} should not be a recipe:\n{recipes}"
 
     with subtest("entrypoints work from a bare login shell; bare tools are not there to misuse"):
@@ -80,8 +90,8 @@ pkgs.testers.runNixOSTest {
             assert out.startswith("/nix/store/"), f"{tool}: {out}"
 
     with subtest("commands act on the invocation directory, not the justfile's"):
-        # `jg` runs the recipe with the working directory set to
-        # ~/.config/just unless the generated body corrects for it.
+        # `just` runs a recipe with the working directory set to
+        # ~/.config/just unless the recipe carries `[no-cd]`.
         machine.succeed("su - larry -c 'mkdir -p ~/elsewhere'")
         machine.succeed(
             "su - larry -c 'cd ~/elsewhere && just --global-justfile embassy::shell true'"

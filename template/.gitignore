@@ -1,0 +1,6 @@
+result
+result-*
+.direnv
+# The environment's project-local CARGO_HOME: the selected mode and cargo's own
+# caches. Recreated on entry.
+.cargo-home

@@ -7,9 +7,13 @@ Generated from [offline-devshells](https://github.com/mayl/offline-devshells).
 The crate set is declared in `flake.nix` under `offlineShells.myEnv.rust`, but the
 lock it resolves to has to be a real, committed file: resolving needs network and
 vendoring must not, so the resolution happens once and its result is checked in.
-`locks/crates-io.lock` ships as a placeholder.
+`locks/crates-io.lock` ships as a placeholder, and until it is resolved
+everything except `myEnv-refresh-seed` refuses to evaluate, saying so.
+
+A flake only sees files git tracks, so track them first:
 
 ```console
+$ git init && git add -A
 $ nix run .#myEnv-refresh-seed
 $ git add locks/ && git commit -m "resolve the offline crate set"
 $ nix build .#myEnv
@@ -55,9 +59,8 @@ could never be built together — two HALs, say — in different members.
 
 ## Putting it in a machine
 
-`offlineShells.myEnv` carries a `nixosModule` and a `homeModule`. Combined with
-[vm-parts](https://github.com/mayl/vm-parts) and
-[nix-global-just](https://github.com/mayl/nix-global-just) they build an appliance
-with the environment installed system-wide and its commands in the global
-justfile. See `vms.embassy-box` in offline-devshells' own `flake.nix` for a worked
-example.
+`offlineShells.myEnv` carries a `nixosModule` (the entrypoints on `PATH`, the
+offline bundle pinned into the closure) and a `homeModule` (`jg myEnv::shell` in
+the global justfile). Combined with [vm-parts](https://github.com/mayl/vm-parts)
+and [nix-global-just](https://github.com/mayl/nix-global-just) they build an
+appliance. See `dev/flake-module.nix` in offline-devshells for a worked example.

@@ -3,11 +3,18 @@
 # They exist as `checks`: one per mode, so `nix flake check` proves that both
 # resolutions actually compile rather than merely evaluate. Each also lands in
 # the offline bundle as a flashable artifact.
+#
+# Neither commits a Cargo.lock. Each resolves one at build time exactly the way
+# `embassy-lock` does for a user's project -- `cargo generate-lockfile
+# --offline` against the vendor directory in crates-io mode, the git-mode seed
+# lock (pruned by the build) in git mode -- so the checks exercise the path a
+# user takes, and a refreshed crate set needs no second lock bumped by hand.
 {
   pkgs,
   lib,
   toolchain,
   cargoConfigs,
+  gitSeedLock,
 }:
 let
   mkFirmware =
@@ -16,6 +23,7 @@ let
       src,
       target,
       config,
+      seedLock ? null,
     }:
     pkgs.stdenv.mkDerivation {
       pname = name;
@@ -33,12 +41,20 @@ let
         runHook preConfigure
         export CARGO_HOME="$(mktemp -d)"
         install -m 0644 ${config} "$CARGO_HOME/config.toml"
+        ${
+          if seedLock == null then
+            "cargo generate-lockfile --offline"
+          else
+            # A vendored git source cannot be resolved from scratch; see
+            # scripts/embassy-lock.sh.
+            "install -m 0644 ${seedLock} Cargo.lock"
+        }
         runHook postConfigure
       '';
 
       buildPhase = ''
         runHook preBuild
-        cargo build --release --locked --offline --target ${target}
+        cargo build --release --offline --target ${target}
         runHook postBuild
       '';
 
@@ -79,5 +95,6 @@ in
     src = ./firmware-mspm0;
     target = "thumbv6m-none-eabi";
     config = cargoConfigs.git;
+    seedLock = gitSeedLock;
   };
 }

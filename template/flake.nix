@@ -12,6 +12,7 @@
     offline-devshells.url = "github:mayl/offline-devshells";
     offline-devshells.inputs.nixpkgs.follows = "nixpkgs";
     offline-devshells.inputs.flake-parts.follows = "flake-parts";
+    offline-devshells.inputs.rust-overlay.follows = "rust-overlay";
   };
 
   outputs =
