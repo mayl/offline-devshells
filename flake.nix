@@ -91,8 +91,19 @@
         };
 
         # The appliance and its boot test: see ./dev/flake-module.nix.
+        #
+        # Not `extraInputsFlake = ./dev`: flake-parts loads a path by copying
+        # it to the store as a separate `-dev` path, and `nix flake check
+        # --no-build` evaluates read-only, so on a store that has never seen
+        # that copy (CI, a fresh clone) it fails with "path ...-dev is not
+        # valid". Pointing at the directory inside our own, already-fetched
+        # source needs no copy.
         partitions.dev = {
-          extraInputsFlake = ./dev;
+          extraInputs =
+            (import "${flake-parts}/vendor/flake-compat" {
+              src.outPath = "${inputs.self}/dev";
+              system = throw "the dev partition's inputs are loaded in pure mode; `system` is not available";
+            }).outputs.inputs;
           module.imports = [ ./dev/flake-module.nix ];
         };
         partitionedAttrs = {
