@@ -1,12 +1,20 @@
-# UNTESTED: written alongside the README's "Bumping" routine but never run.
-# Expect to adjust it on first use (runner disk space, refresh-seed run time,
-# the repository's Actions permissions for opening PRs).
+# PROVEN LOCALLY, NOT YET RUN ON GITHUB. `nix run .#embassy-bump` -- the whole
+# routine below -- has run on a workstation against current embassy main, and
+# the tree it produced passes `nix flake check` and builds `.#embassy`. (The
+# bump's own verification step was cut short by the machine running out of
+# memory; the same builds were then run separately.) This workflow has never
+# been dispatched, so runner disk space and run time are unmeasured. Opening
+# the PR needs the repository setting "Allow GitHub Actions to create and
+# approve pull requests", and a PR opened with GITHUB_TOKEN does not trigger
+# ci.yml (close and reopen it, or give create-pull-request a PAT).
 #
-# Moves the `embassy` input to current main, re-resolves both crate sets
-# against it, proves both firmwares still build, and opens a PR with the result.
-# Major-version bumps in presets/embassy/crates.nix are still a human's job: if
-# embassy has released new majors, this PR will build against the old ones (or
-# fail), and says nothing about it.
+# Moves the `embassy` input to current main and opens a PR with the result. All
+# of the work is `embassy-bump` -- the same command a human runs -- so a bump
+# that works locally works here: it re-derives the embassy crate versions,
+# re-resolves both crate sets, moves Rust if embassy's toolchain moved, and
+# proves both firmwares and the bundle still build. If anything needs a human
+# (an upstream API change in the example firmware, a crate removed upstream),
+# it puts every file back, fails, and says what broke in the job summary.
 name: Bump embassy
 
 on:
@@ -18,9 +26,18 @@ permissions:
   contents: write
   pull-requests: write
 
+# One bump at a time: a manual run and the weekly one must not race on the
+# bump/embassy branch.
+concurrency:
+  group: bump-embassy
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: ubuntu-latest
+    # Locally, everything up to the build took ~12 minutes (mostly resolving git
+    # mode); the builds come on top. Not yet measured on a runner.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
@@ -28,25 +45,13 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Update the embassy input
-        run: nix flake update embassy
+      - name: Bump
+        run: nix run .#embassy-bump -- --summary "$RUNNER_TEMP/bump-summary.md"
 
-      # Needs network, and takes 10-15 minutes, almost all of it fetching the
-      # crates.io sparse index.
-      - name: Re-resolve both crate sets
-        run: nix run .#embassy-refresh-seed
-
-      - name: Both firmwares still build
-        run: nix flake check --print-build-logs
-
+      # Does nothing when the bump changed nothing.
       - uses: peter-evans/create-pull-request@v8
         with:
           branch: bump/embassy
-          title: Bump embassy and re-resolve the offline crate sets
-          commit-message: Bump embassy and re-resolve the offline crate sets
-          body: |
-            `nix flake update embassy`, then `embassy-refresh-seed`; `nix flake check`
-            passed with the result.
-
-            Not checked: whether embassy released new majors that
-            `presets/embassy/crates.nix` should move to (see "Bumping" in the README).
+          title: Bump embassy, re-resolve both crate sets
+          commit-message: Bump embassy, re-resolve both crate sets
+          body-path: ${{ runner.temp }}/bump-summary.md

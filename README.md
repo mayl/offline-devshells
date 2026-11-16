@@ -281,9 +281,10 @@ $ git add locks/ && git commit
 
 That regenerates each mode's lock from the seed workspace the module renders, and
 re-learns any `vendorHashFile` by writing a hash that cannot be right, building,
-and reading back the one Nix reports (with your own `nix` — it is not pinned). If
-that build fails for any other reason, the old hash is put back and the build
-output shown. Patched modes are slow — 10–15 minutes is normal, almost all of it
+and reading back the one Nix reports (with your own `nix` — it is not pinned). It
+is all or nothing: every mode is resolved before any lock is written, and if a
+hash cannot be learned (the build fails for any other reason), every lock and
+hash file is put back and the build output shown. Patched modes are slow — 10–15 minutes is normal, almost all of it
 fetching the crates.io sparse index.
 
 It is the one command that works before anything is resolved: a placeholder lock
@@ -448,9 +449,11 @@ modules/
     seed.nix                  crates.<member>.<dep> -> seed workspace
     scripts/                  mode.sh, refresh-seed.sh (generated from `modes`)
 presets/embassy/              the embassy environment: crates, scripts, locks, firmware
+  versions.nix, versions.json where the embassy crates' versions come from
+  bump/                       embassy-bump, this repository's one-command bump
 dev/                          the appliance's partition: its inputs, and vms.embassy-box
 vm/                           machine.nix, test.nix
-tests/                        generic-layer.nix, rust-backend.nix (both in `checks`)
+tests/                        module tests, embassy version derivation, embassy-bump (all in `checks`)
 template/                     nix flake init -t github:mayl/offline-devshells
 ```
 
@@ -468,27 +471,51 @@ nothing to fetch. Re-check the VirtualBox guest-additions `mkForce` in
 **vm-parts / Home Manager / nix-global-just** — `nix flake update --flake ./dev
 <input>`.
 
-**embassy** — the expensive one:
+**embassy and Rust** — one command, with network:
 
-1. `nix flake update embassy`
-2. `nix run .#embassy-refresh-seed` (network; 10–15 minutes) — rewrites both
-   locks and `git-vendor-hash.nix`.
-3. If embassy released new majors, bump the versions in
-   `presets/embassy/crates.nix` (`common.embassy-executor` and friends), in the
-   two example firmwares' `Cargo.toml`, and in `template/flake.nix`, then run
-   refresh-seed again.
-4. `nix flake check` — builds both firmwares against the new crate sets. They
-   resolve their own `Cargo.lock` at build time, so there is no lock of theirs
-   to bump.
+```console
+$ nix run .#embassy-bump            # 15–30 minutes; see --help
+$ git add -A && git commit
+```
 
-**Rust** — `rust.version` in `presets/embassy/default.nix` and in
-`template/flake.nix` (a separate flake, so it cannot share the value). The
-README and the example in `modules/offline-shells.nix` / `flake-module.nix`
-name it too, as plain text. Update `rust-overlay` first if the version is newer
-than its pin.
+It moves the `embassy` input to current main and brings everything that depends
+on it along:
 
-CI's weekly bump workflow runs the embassy routine and opens a PR; see
-`.github/workflows/`.
+1. **Checks `crates.nix` against the new tree.** Embassy's own crates are named
+   there without versions; a crate the tree no longer has stops the bump here,
+   since what replaces it is a human's call.
+2. **Derives the versions.** Git mode reads each crate's version from the pinned
+   tree at evaluation time. Crates-io mode uses the newest release on crates.io,
+   which the bump looks up and records in `presets/embassy/versions.json`; when a
+   release crosses a major, the previous one stays seeded beside it as
+   `<name>-prev`, so existing projects keep resolving offline. Requested features
+   a version no longer has are dropped and listed (see
+   [presets/embassy/versions.nix](presets/embassy/versions.nix)).
+3. **Moves Rust** to the toolchain embassy's `rust-toolchain.toml` names (never
+   down), updating `rust-overlay` only if it does not have that version yet. The
+   version lives in `versions.json` too.
+4. **Re-resolves both crate sets** (`embassy-refresh-seed`). The crates.io lock
+   moves to current releases of everything in it, not only embassy.
+5. **Rewrites the versions that are written down** — the two example firmwares'
+   `Cargo.toml` and `template/flake.nix` — wherever a requirement no longer holds.
+   The `embassy-manifests-in-sync` check refuses a checked-in copy that disagrees.
+6. **Proves it:** `nix flake check` (both firmwares) and `nix build .#embassy`.
+
+If any step fails, every file it touched is put back and it says what broke and
+what to decide: a firmware that no longer compiles is an upstream API change to
+port in `presets/embassy/firmware*/src`; a feature or crate cargo cannot find
+needs `crates.nix` or a firmware `Cargo.toml` changed. `--keep-on-failure` leaves
+the bumped tree in place to fix by hand. `--rev <rev>` pins embassy somewhere
+other than main.
+
+CI's weekly bump workflow runs exactly this command and opens a PR with its
+summary; see `.github/workflows/`.
+
+**Rust, by hand** — `embassy-bump` handles the usual case. To pin a different
+version, set `rust` in `presets/embassy/versions.json` (`rust-overlay` must
+provide it) and re-run the bump, which carries it into `template/flake.nix`. The
+README and the examples in `modules/offline-shells.nix` / `flake-module.nix`
+name a version too, as plain illustrations of the option.
 
 ## Relationship to lpmTemplates
 

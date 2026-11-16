@@ -12,8 +12,18 @@
 { pkgs, lib }:
 let
   # `cargo generate-lockfile --manifest-path <dir>/Cargo.toml` writes a lock
-  # beside the manifest. That is all refresh-seed asks of cargo.
+  # beside the manifest. That is all refresh-seed asks of cargo. With
+  # $CARGO_FAIL_AFTER set, every call after that many fails, as an unresolvable
+  # mode would.
   stubToolchain = pkgs.writeShellScriptBin "cargo" ''
+    if [ -n "''${CARGO_FAIL_AFTER:-}" ]; then
+      n=$(( $(cat "$CARGO_CALLS" 2>/dev/null || echo 0) + 1 ))
+      echo "$n" >"$CARGO_CALLS"
+      if [ "$n" -gt "$CARGO_FAIL_AFTER" ]; then
+        echo "error: failed to select a version for \`something\`" >&2
+        exit 101
+      fi
+    fi
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --manifest-path) manifest="$2"; shift 2 ;;
@@ -188,8 +198,20 @@ else
     fi
     cmp -s repo/tests/fixtures/vendor-hash.nix ${./fixtures/vendor-hash.nix} \
       || { cat repo/tests/fixtures/vendor-hash.nix; fail "the previous hash was not restored"; }
+    cmp -s repo/tests/fixtures/one-crate.lock ${./fixtures/one-crate.lock} \
+      || { cat repo/tests/fixtures/one-crate.lock; fail "the lock was left re-resolved beside a restored hash"; }
     grep -q 'something unrelated broke' log \
       || { cat log; fail "the build output was swallowed"; }
+
+    # One mode resolves, the next cannot: nothing is written at all.
+    mkrepo
+    stub_nix 'echo "nix must not be reached"; exit 1'
+    if CARGO_FAIL_AFTER=1 CARGO_CALLS=$PWD/cargo-calls PATH="$stubs:$PATH" ${refresh} repo >log 2>&1; then
+      fail "refresh-seed succeeded although a mode could not be resolved"
+    fi
+    cmp -s repo/tests/fixtures/one-crate.lock ${./fixtures/one-crate.lock} \
+      || { cat log; fail "a lock was written although another mode failed to resolve"; }
+    grep -q 'nix must not be reached' log && fail "refresh-seed went on to the hashes after a failed resolve"
 
     # A lock directory that is not there: say whose locks these are.
     mkdir -p empty

@@ -20,8 +20,8 @@
     #   nix flake update embassy                        move to current main
     #   nix flake lock --override-input embassy ...      pin a branch, tag or fork
     #   nix develop --override-input embassy ~/embassy   try a local checkout
-    # Moving it means re-running `embassy-refresh-seed`: see "Bumping" in the
-    # README.
+    # Move it with `nix run .#embassy-bump`, which brings the crate sets, the
+    # derived versions and Rust along: see "Bumping" in the README.
     embassy = {
       url = "github:embassy-rs/embassy";
       flake = false;
@@ -118,6 +118,9 @@
             lib,
             ...
           }:
+          let
+            embassyBump = import ./presets/embassy/bump { inherit pkgs lib inputs; };
+          in
           {
             # The rust backend needs `pkgs.rust-bin`.
             _module.args.pkgs = import inputs.nixpkgs {
@@ -127,9 +130,19 @@
 
             formatter = pkgs.nixfmt-tree;
 
+            # This repository's own maintenance: `nix run .#embassy-bump`. Defined
+            # here rather than in the preset, so a consumer never gets it.
+            packages.embassy-bump = embassyBump.package;
+
             checks = {
               generic-layer = import ./tests/generic-layer.nix { inherit pkgs lib; };
               rust-backend = import ./tests/rust-backend.nix { inherit pkgs lib; };
+              embassy-versions = import ./tests/embassy-versions.nix { inherit pkgs lib; };
+              embassy-bump = import ./tests/embassy-bump.nix {
+                inherit pkgs lib;
+                bump = embassyBump.package;
+              };
+              embassy-manifests-in-sync = embassyBump.inSync;
             };
           };
       }

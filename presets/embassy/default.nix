@@ -74,7 +74,14 @@ in
   config.perSystem =
     { config, pkgs, ... }:
     let
-      crates = import ./crates.nix { inherit lib; };
+      # Versions for the crates embassy publishes are derived, not written in
+      # crates.nix; see ./versions.nix.
+      pinned = lib.importJSON ./versions.json;
+      versions = import ./versions.nix {
+        inherit lib pinned;
+        embassySrc = inputs.embassy;
+      };
+      crates = versions.resolve (import ./crates.nix { inherit lib; });
 
       # Reads back the toolchain and cargo configs this same module defines. Not
       # a cycle: `rust.toolchain` and `rust.modes.<m>.cargoConfig` are computed
@@ -86,6 +93,8 @@ in
         inherit (rust) toolchain;
         cargoConfigs = lib.mapAttrs (_: m: m.cargoConfig) rust.modes;
         gitSeedLock = top.embassyPreset.locksDir + "/git.lock";
+        inherit versions;
+        derivedVersions = crates.versions;
       };
 
       lock = file: {
@@ -108,9 +117,10 @@ in
         rust = {
           # Pinned rather than `stable.latest` so that updating the rust-overlay
           # input can't silently swap the compiler out from under a vendored
-          # crate set that was resolved against a particular MSRV. The one place
-          # the preset names it; the README's "Bumping" section lists the rest.
-          version = "1.97.1";
+          # crate set that was resolved against a particular MSRV. Kept in
+          # versions.json, which `embassy-bump` moves to the toolchain the
+          # pinned embassy tree's rust-toolchain.toml asks for (never down).
+          version = pinned.rust;
 
           extensions = [
             "rust-src"

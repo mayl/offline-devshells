@@ -1,0 +1,15 @@
+# Fixture: a tree crate whose manifest is TOML 1.1, which builtins.fromTOML
+# rejects -- the version must still be found.
+[package]
+name = "embassy-foo"
+version = "0.3.1"
+edition = "2024"
+
+[dependencies]
+xarxa = {
+    git = "https://example.invalid/xarxa",
+    optional = true,
+}
+
+[features]
+defmt = []

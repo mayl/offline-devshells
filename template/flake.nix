@@ -35,7 +35,7 @@
             packages = [ pkgs.probe-rs-tools ];
 
             rust = {
-              version = "1.97.1";
+              version = "1.100.0";
               targets = [ "thumbv7em-none-eabihf" ];
 
               modes.crates-io = {

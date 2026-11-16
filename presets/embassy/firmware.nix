@@ -9,18 +9,37 @@
 # --offline` against the vendor directory in crates-io mode, the git-mode seed
 # lock (pruned by the build) in git mode -- so the checks exercise the path a
 # user takes, and a refreshed crate set needs no second lock bumped by hand.
+#
+# Nor are their embassy versions kept by hand: each `Cargo.toml` is built with
+# its embassy requirements rewritten to the versions the preset derives for that
+# mode (./versions.nix), so a firmware always builds against the crate set it is
+# meant to prove -- including under `--override-input embassy`. `embassy-bump`
+# writes the rewritten manifests back, and this repository's
+# `embassy-manifests-in-sync` check refuses a checked-in copy that has drifted.
 {
   pkgs,
   lib,
   toolchain,
   cargoConfigs,
   gitSeedLock,
+  versions,
+  derivedVersions,
 }:
 let
+  # A firmware's manifest with its embassy requirements moved to what the
+  # preset derives for `mode`.
+  manifest =
+    dir: mode:
+    versions.rewrite {
+      text = builtins.readFile (dir + "/Cargo.toml");
+      versions = derivedVersions.${mode};
+    };
+
   mkFirmware =
     {
       name,
-      src,
+      dir,
+      mode,
       target,
       config,
       seedLock ? null,
@@ -28,7 +47,12 @@ let
     pkgs.stdenv.mkDerivation {
       pname = name;
       version = "0.1.0";
-      inherit src;
+
+      src = pkgs.runCommandLocal "${name}-src" { } ''
+        cp -r ${dir} $out
+        chmod -R u+w $out
+        cp ${pkgs.writeText "${name}-Cargo.toml" (manifest dir mode)} $out/Cargo.toml
+      '';
 
       nativeBuildInputs = [
         toolchain
@@ -80,10 +104,18 @@ let
     };
 in
 {
+  # What each checked-in manifest should say, by path relative to this
+  # directory: for `embassy-bump` to write, and the in-sync check to compare.
+  manifests = {
+    "firmware/Cargo.toml" = manifest ./firmware "cratesIo";
+    "firmware-mspm0/Cargo.toml" = manifest ./firmware-mspm0 "git";
+  };
+
   # STM32F411CE, built from the published crates.
   blinky = mkFirmware {
     name = "blinky";
-    src = ./firmware;
+    dir = ./firmware;
+    mode = "cratesIo";
     target = "thumbv7em-none-eabi";
     config = cargoConfigs.crates-io;
   };
@@ -92,7 +124,8 @@ in
   # build it, and it doubles as the proof that git mode works.
   blinkyMspm0 = mkFirmware {
     name = "blinky-mspm0";
-    src = ./firmware-mspm0;
+    dir = ./firmware-mspm0;
+    mode = "git";
     target = "thumbv6m-none-eabi";
     config = cargoConfigs.git;
     seedLock = gitSeedLock;

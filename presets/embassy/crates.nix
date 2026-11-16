@@ -11,8 +11,16 @@
 # the vendor directory, a missing one costs a project that will not resolve
 # offline at all.
 #
-# To widen the set: add an attribute, run `embassy-refresh-seed` with network,
-# and commit the updated lock.
+# Crates that embassy itself publishes -- everything living in the embassy tree:
+# `embassy-*`, `cyw43`, `cyw43-pio` -- are named here *without* a version. Their
+# versions are derived (./versions.nix): from the pinned tree in git mode, from
+# ./versions.json (the newest crates.io release, kept current by `embassy-bump`)
+# in crates-io mode. So a bump never needs a version edited here. An entry that
+# does give one (`embassy-executor-09`) is a deliberately seeded older major.
+#
+# To widen the set: add an attribute, run `embassy-refresh-seed` with network
+# (or `embassy-bump`, for a new crate from the embassy tree), and commit the
+# updated lock.
 { lib }:
 let
   # Chip-independent half: the executor, the sync/time primitives, the
@@ -35,10 +43,9 @@ let
 
     # Embassy core.
     #
-    # 0.10 renamed the `arch-*` features to `platform-*`. Both majors are seeded
-    # so that a project pinned to either one still resolves offline.
+    # 0.10 renamed the `arch-*` features to `platform-*`. 0.9 is seeded beside
+    # the current major so that a project pinned to it still resolves offline.
     embassy-executor = {
-      version = "0.10";
       features = [
         "platform-cortex-m"
         "executor-thread"
@@ -57,33 +64,27 @@ let
       ];
     };
     embassy-time = {
-      version = "0.5";
       features = [
         "defmt"
         "defmt-timestamp-uptime"
       ];
     };
     embassy-sync = {
-      version = "0.8";
       features = [ "defmt" ];
     };
     embassy-futures = {
-      version = "0.1";
       features = [ "defmt" ];
     };
     embassy-embedded-hal = {
-      version = "0.6";
       features = [ "defmt" ];
     };
 
     # Embassy networking / USB stacks
     embassy-usb = {
-      version = "0.6";
       features = [ "defmt" ];
     };
-    embassy-usb-logger = "0.6";
+    embassy-usb-logger = { };
     embassy-net = {
-      version = "0.9";
       features = [
         "defmt"
         "tcp"
@@ -91,10 +92,13 @@ let
         "dns"
         "dhcpv4"
         "medium-ethernet"
+        # Renamed `ipv6` when embassy-net moved off smoltcp (late 2026). Both
+        # are listed; each mode drops the one its version lacks.
         "proto-ipv6"
+        "ipv6"
       ];
     };
-    embassy-net-driver-channel = "0.4";
+    embassy-net-driver-channel = { };
 
     # Logging / panic
     defmt = "1";
@@ -175,16 +179,17 @@ let
 
   # Embassy's out-of-tree network and USB drivers. Git mode only: the crates
   # themselves come from the patch table, but their registry dependencies have to
-  # be in the vendor directory.
+  # be in the vendor directory. A crate that leaves the tree stops evaluation
+  # (see ./versions.nix) rather than silently resolving from crates.io.
   commonGitExtra = {
-    embassy-net-wiznet = "0.3";
-    embassy-net-adin1110 = "0.4";
-    embassy-net-enc28j60 = "0.3";
-    embassy-net-esp-hosted = "0.3";
-    embassy-net-ppp = "0.3";
-    embassy-usb-host = "0.1";
+    embassy-net-wiznet = { };
+    embassy-net-adin1110 = { };
+    embassy-net-enc28j60 = { };
+    embassy-net-esp-hosted = { };
+    embassy-net-ppp = { };
+    # (embassy-usb-host was folded into embassy-usb as its `host` feature, on by
+    # default, in late 2026; embassy-usb above covers it.)
     embassy-usb-dfu = {
-      version = "0.3";
       features = [ "dfu" ];
     };
   };
@@ -298,7 +303,6 @@ let
   # `stm32-hrtim`".
   stm32 = {
     embassy-stm32 = {
-      version = "0.6";
       features = [
         "stm32f411ce"
         "memory-x"
@@ -330,7 +334,6 @@ let
 
   nrf = {
     embassy-nrf = {
-      version = "0.11";
       features = [
         "nrf52840"
         "time-driver-rtc1"
@@ -345,7 +348,7 @@ let
 
   # lulf/embassy-template still generates `embassy-nrf = "0.9"`, so that major is
   # seeded alongside current. Crates-io mode only: the git tree carries a single
-  # version (0.11) and a ^0.9 requirement cannot be satisfied by a patch.
+  # version and a ^0.9 requirement cannot be satisfied by a patch.
   nrfCratesIoExtra = {
     embassy-nrf-09 = {
       package = "embassy-nrf";
@@ -365,7 +368,6 @@ let
   # RP2040 graph even if you only ever build for STM32.
   rp = {
     embassy-rp = {
-      version = "0.10";
       features = [
         "rp2040"
         "time-driver"
@@ -380,14 +382,12 @@ let
       ];
     };
     cyw43 = {
-      version = "0.7";
       features = [
         "defmt"
         "firmware-logs"
       ];
     };
     cyw43-pio = {
-      version = "0.10";
       features = [ "defmt" ];
     };
   };
@@ -408,14 +408,14 @@ let
   };
 
   # Git mode only. `embassy-mspm0` is `publish = false` in the tree and the
-  # crates.io name holds nothing but an empty 0.0.0 placeholder, so 0.1.0 here
-  # can only ever be satisfied by the patch table -- which cargo is happy to do,
-  # even for a version the registry has never seen.
+  # crates.io name holds nothing but an empty 0.0.0 placeholder, so the tree's
+  # version (0.1.0 at the time of writing) can only ever be satisfied by the
+  # patch table -- which cargo is happy to do, even for a version the registry
+  # has never seen.
   #
   # Pulls `mspm0-metapac` transitively, which the tree takes from a git tag.
   mspm0 = {
     embassy-mspm0 = {
-      version = "0.1.0";
       features = [
         "mspm0g3507pm"
         "rt"

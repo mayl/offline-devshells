@@ -550,7 +550,7 @@ in
 
   config = {
     toolchain = lib.mkOptionDefault (
-      (pkgs.rust-bin or (throw ''
+      ((pkgs.rust-bin or (throw ''
         offline-devshells: shell `${shellName}' uses the rust backend, but `pkgs`
         has no `rust-bin`.
 
@@ -563,7 +563,12 @@ in
             };
           };
       '')
-      ).stable.${config.version}.${config.profile}.override
+      ).stable.${config.version} or (throw ''
+        offline-devshells: shell `${shellName}' pins Rust ${config.version}, which the
+        rust-overlay in `pkgs` does not provide. Update the rust-overlay input
+        (`nix flake update rust-overlay`), or pin a version it has.
+      '')
+      ).${config.profile}.override
         {
           inherit (config) extensions targets;
         }

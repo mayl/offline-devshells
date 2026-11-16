@@ -3,11 +3,11 @@
     "embassy": {
       "flake": false,
       "locked": {
-        "lastModified": 1786949409,
-        "narHash": "sha256-5g2nQsxDu/AeL8GG7rhwkZeoSx6IXAdVSZXPYEStczo=",
+        "lastModified": 1794596235,
+        "narHash": "sha256-Gn2nkiuFi+dCGnw84wtrWB/A7I/u8kyOngX689yUb58=",
         "owner": "embassy-rs",
         "repo": "embassy",
-        "rev": "63e74af9badbb4e82580e3121c4b341dcf63d5cc",
+        "rev": "9d11761658f14ae1a727c8536dc5b21fb45493af",
         "type": "github"
       },
       "original": {
@@ -84,11 +84,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1786935912,
-        "narHash": "sha256-26qGGBO364d5JbTMrFchrxp7xY8CJp3D5cjkND99t7E=",
+        "lastModified": 1794646145,
+        "narHash": "sha256-rpqDyUM/d5fACYB8W+wKxxO57ICWjjalzb2X25oFFkY=",
         "owner": "oxalica",
         "repo": "rust-overlay",
-        "rev": "b479967b8ed7aca40ba52cf12f460484c53928a9",
+        "rev": "5b87ee0513c29127a01ad06e9cb362ea5ce91e78",
         "type": "github"
       },
       "original": {
