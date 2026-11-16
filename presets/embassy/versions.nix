@@ -57,7 +57,7 @@ let
     else
       compat req == compat version && builtins.compareVersions req version <= 0;
 
-  treeManifest = name: "${embassySrc}/${name}/Cargo.toml";
+  treeManifest = name: embassySrc + "/${name}/Cargo.toml";
   inTree = name: builtins.pathExists (treeManifest name);
 
   # `version = "..."` in the `[package]` table, or null.
@@ -102,7 +102,7 @@ let
       if !inTree name then
         throw ''
           offline-devshells (embassy preset): `${name}' is in presets/embassy/crates.nix
-          but is no longer in the pinned embassy tree (${embassySrc}).
+          but is no longer in the pinned embassy tree (${toString embassySrc}).
 
           Upstream removed or renamed it. Decide what replaces it -- check embassy's
           history for the crate's directory -- then remove or rename the entry in
