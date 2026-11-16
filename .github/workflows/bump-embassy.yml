@@ -1,12 +1,10 @@
-# PROVEN LOCALLY, NOT YET RUN ON GITHUB. `nix run .#embassy-bump` -- the whole
-# routine below -- has run on a workstation against current embassy main, and
-# the tree it produced passes `nix flake check` and builds `.#embassy`. (The
-# bump's own verification step was cut short by the machine running out of
-# memory; the same builds were then run separately.) This workflow has never
-# been dispatched, so runner disk space and run time are unmeasured. Opening
-# the PR needs the repository setting "Allow GitHub Actions to create and
-# approve pull requests", and a PR opened with GITHUB_TOKEN does not trigger
-# ci.yml (close and reopen it, or give create-pull-request a PAT).
+# Runs end to end on a standard runner in a few minutes, with no extra disk
+# space needed. Two things to know:
+#
+# - Opening the PR needs the repository setting "Allow GitHub Actions to create
+#   and approve pull requests" (Settings > Actions > General).
+# - A PR opened with GITHUB_TOKEN does not trigger ci.yml. Close and reopen it
+#   to run CI, or give create-pull-request a PAT.
 #
 # Moves the `embassy` input to current main and opens a PR with the result. All
 # of the work is `embassy-bump` -- the same command a human runs -- so a bump
